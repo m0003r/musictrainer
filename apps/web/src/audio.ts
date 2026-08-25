@@ -5,21 +5,44 @@ export type PlaybackMode = "webaudio" | "midi";
 
 let playbackMode: PlaybackMode = "webaudio";
 let midiOutput: MIDIOutput | null = null;
+const pendingMidiNoteOffs = new Set<ReturnType<typeof globalThis.setTimeout>>();
+
+export interface SequencePlayback {
+  cancel(): void;
+}
 
 export function configurePlayback(mode: PlaybackMode, output: MIDIOutput | null): void {
   playbackMode = mode;
   midiOutput = output;
 }
 
-export function playNote(midi: number, durationSeconds = 0.9): void {
-  if (playbackMode === "midi" && midiOutput) {
-    const output = midiOutput;
+function canSendTo(output: MIDIOutput): boolean {
+  return (output.state === undefined || output.state === "connected") && output.connection !== "closed";
+}
+
+function tryPlayMidiNote(midi: number, durationSeconds: number): boolean {
+  const output = midiOutput;
+  if (playbackMode !== "midi" || !output || !canSendTo(output)) return false;
+  try {
     output.send([0x90, midi, 100]);
-    globalThis.setTimeout(() => output.send([0x80, midi, 0]), durationSeconds * 1000);
-    return;
+  } catch {
+    return false;
   }
-  audioContext ??= new AudioContext();
-  const context = audioContext;
+
+  const timer = globalThis.setTimeout(() => {
+    pendingMidiNoteOffs.delete(timer);
+    if (!canSendTo(output)) return;
+    try {
+      output.send([0x80, midi, 0]);
+    } catch {
+      // A hot-unplugged output must not turn a scheduled note-off into an error.
+    }
+  }, durationSeconds * 1000);
+  pendingMidiNoteOffs.add(timer);
+  return true;
+}
+
+function startWebAudioNote(context: AudioContext, midi: number, durationSeconds: number): void {
   const now = context.currentTime;
   const frequency = midiToFrequency(midi);
   const gain = context.createGain();
@@ -45,9 +68,43 @@ export function playNote(midi: number, durationSeconds = 0.9): void {
   overtone.stop(now + durationSeconds);
 }
 
+export function playNote(midi: number, durationSeconds = 0.9): void {
+  if (tryPlayMidiNote(midi, durationSeconds)) return;
+
+  audioContext ??= new AudioContext();
+  const context = audioContext;
+  if (context.state === "suspended") {
+    void context.resume().then(() => {
+      if (audioContext === context && context.state !== "closed") startWebAudioNote(context, midi, durationSeconds);
+    }).catch(() => undefined);
+    return;
+  }
+  if (context.state !== "closed") startWebAudioNote(context, midi, durationSeconds);
+}
+
 /** Plays an ordered pitch sequence with equal spacing; rhythm training is deliberately out of scope. */
-export function playSequence(midis: readonly number[], gapMs = 520): void {
-  midis.forEach((midi, index) => {
-    globalThis.setTimeout(() => playNote(midi, Math.min(0.75, gapMs / 1000)), index * gapMs);
-  });
+export function playSequence(midis: readonly number[], gapMs = 520): SequencePlayback {
+  const timers: Array<ReturnType<typeof globalThis.setTimeout> | null> = midis.map((midi, index) => globalThis.setTimeout(
+    () => {
+      timers[index] = null;
+      playNote(midi, Math.min(0.75, gapMs / 1000));
+    },
+    index * gapMs
+  ));
+  return {
+    cancel() {
+      for (const timer of timers) {
+        if (timer !== null) globalThis.clearTimeout(timer);
+      }
+      timers.fill(null);
+    }
+  };
+}
+
+export function disposeAudio(): void {
+  for (const timer of pendingMidiNoteOffs) globalThis.clearTimeout(timer);
+  pendingMidiNoteOffs.clear();
+  const context = audioContext;
+  audioContext = null;
+  if (context && context.state !== "closed") void context.close().catch(() => undefined);
 }
