@@ -735,6 +735,16 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
   .answer-map { grid-template-columns: 1fr 1fr; }
 }
 
+@media (min-width: 860px) and (max-width: 1280px) {
+  .exercise-body.target-notation { grid-template-columns: minmax(0, 1fr); }
+  .target-notation .prompt-card { min-height: 150px; padding-block: 12px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
+  .target-notation .options-grid.options-4,
+  .target-notation .options-grid.options-5,
+  .target-notation .options-grid.options-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; }
+  .target-notation .option-card { min-width: 0; min-height: 168px; padding: 12px 9px 9px; }
+  .target-notation .option-card > button { width: 100%; }
+}
+
 @media (max-width: 760px) {
   .trainer-shell { width: min(100% - 18px, 1540px); padding-top: 16px; }
   .compact-hero { align-items: stretch; flex-direction: column; }

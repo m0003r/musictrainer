@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CLEFS,
   CLEF_LABELS,
@@ -22,6 +22,14 @@ export interface HintSettings {
   keyboardNoteLabels: boolean;
   keyboardOctaveLabels: boolean;
   clefGuide: boolean;
+}
+
+export function trappedFocusIndex(activeIndex: number, focusableCount: number, backwards: boolean): number | null {
+  if (focusableCount === 0) return null;
+  if (activeIndex < 0) return backwards ? focusableCount - 1 : 0;
+  if (backwards && activeIndex === 0) return focusableCount - 1;
+  if (!backwards && activeIndex === focusableCount - 1) return 0;
+  return null;
 }
 
 interface PracticeSettingsProps {
@@ -56,28 +64,55 @@ function CheckChip({ checked, label, onChange }: { checked: boolean; label: stri
 
 export function PracticeSettings(props: PracticeSettingsProps) {
   const [open, setOpen] = useState(false);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const preset = difficultyPreset(props.level);
 
   useEffect(() => {
     if (!open) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    const containDrawerFocus = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const drawer = drawerRef.current;
+      if (!drawer) return;
+      const focusable = Array.from(drawer.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      const targetIndex = trappedFocusIndex(focusable.indexOf(document.activeElement as HTMLElement), focusable.length, event.shiftKey);
+      if (targetIndex === null) return;
+      event.preventDefault();
+      (focusable[targetIndex] ?? drawer).focus();
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+
+    document.addEventListener("keydown", containDrawerFocus);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.removeEventListener("keydown", containDrawerFocus);
+      launcherRef.current?.focus();
+    };
   }, [open]);
 
   return (
     <>
-      <button type="button" className="settings-launcher" aria-expanded={open} aria-controls="practice-settings" onClick={() => setOpen(true)}>
+      <button ref={launcherRef} type="button" className="settings-launcher" aria-expanded={open} aria-controls="practice-settings" onClick={() => setOpen(true)}>
         <span>Настройки</span>
         <small>{props.customDifficulty ? "Своя сложность" : `Уровень ${props.level}`} · {props.directionCount} связей · {props.clefs.length} ключей{props.pendingNextQuestion ? " · применится дальше" : ""}</small>
       </button>
-      {open && <button type="button" className="settings-backdrop" aria-label="Закрыть настройки" onClick={() => setOpen(false)} />}
-      <aside id="practice-settings" className={`setup-panel${open ? " is-open" : ""}`} aria-hidden={!open} inert={open ? undefined : true}>
+      {open && <button type="button" className="settings-backdrop" tabIndex={-1} aria-label="Закрыть настройки" onClick={() => setOpen(false)} />}
+      <aside ref={drawerRef} id="practice-settings" className={`setup-panel${open ? " is-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="practice-settings-title" aria-hidden={!open} inert={open ? undefined : true} tabIndex={-1}>
         <header className="settings-drawer-heading">
-          <div><strong>Настройки практики</strong><small>Изменения содержания — со следующего примера</small></div>
-          <button type="button" aria-label="Закрыть настройки" onClick={() => setOpen(false)}>×</button>
+          <div><strong id="practice-settings-title">Настройки практики</strong><small>Изменения содержания — со следующего примера</small></div>
+          <button ref={closeButtonRef} type="button" aria-label="Закрыть настройки" onClick={() => setOpen(false)}>×</button>
         </header>
       <div className="setup-panel-body">
         {props.pendingNextQuestion && <p className="pending-settings" role="status">Новые параметры применятся со следующего примера.</p>}
