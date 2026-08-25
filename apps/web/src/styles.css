@@ -679,9 +679,9 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 .options-grid.options-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .options-grid.options-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .options-grid.options-5, .options-grid.options-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.target-notation .options-grid.options-4,
+.target-notation .options-grid.options-4 { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
 .target-notation .options-grid.options-5,
-.target-notation .options-grid.options-6 { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+.target-notation .options-grid.options-6 { grid-template-columns: repeat(3, minmax(220px, 1fr)); }
 .option-card { min-height: 168px; }
 .option-card .note-names strong { font-size: 1.15rem; }
 .sound-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

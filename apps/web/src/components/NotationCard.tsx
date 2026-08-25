@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { noteToMusicXml, type Clef, type KeyFifths, type Note, type WrittenAccidental } from "@music-trainer/core";
+import { CLEF_LABELS, noteToMusicXml, type Clef, type KeyFifths, type Note, type WrittenAccidental } from "@music-trainer/core";
 
 interface NotationCardProps {
   note: Note | readonly Note[];
@@ -50,7 +50,7 @@ export function NotationCard({ note, clef, keyFifths = 0, writtenAccidental = nu
 
   return (
     <div className="notation-shell">
-      <div className="notation-card" ref={containerRef} aria-label="Нотная запись" />
+      <div className="notation-card" ref={containerRef} data-clef={clef} aria-label={`Нотная запись, ${CLEF_LABELS[clef]}`} />
       {error && (
         <div className="notation-error" role="alert">
           <span>Не удалось показать ноту</span>
