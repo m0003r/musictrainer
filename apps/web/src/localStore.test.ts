@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { difficultyPreset } from "@music-trainer/core";
 import {
   LOCAL_STORE_KEY,
   LocalStoreError,
@@ -9,6 +10,7 @@ import {
   listProfiles,
   loadSettings,
   recordAttempt,
+  resolveInitialDifficulty,
   saveSettings,
   selectProfile,
   type LocalAttempt,
@@ -72,6 +74,22 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, "window");
+});
+
+describe("initial difficulty", () => {
+  it("uses the current first preset when no settings exist", () => {
+    expect(resolveInitialDifficulty(null)).toEqual(difficultyPreset(1).settings);
+  });
+
+  it("recomputes a persisted preset instead of restoring its stale values", () => {
+    expect(resolveInitialDifficulty(settings)).toEqual(difficultyPreset(settings.level).settings);
+    expect(resolveInitialDifficulty(settings)).not.toEqual(settings.difficulty);
+  });
+
+  it("restores exact persisted values for custom difficulty", () => {
+    const custom = { ...settings, customDifficulty: true };
+    expect(resolveInitialDifficulty(custom)).toEqual(custom.difficulty);
+  });
 });
 
 describe("local profiles", () => {

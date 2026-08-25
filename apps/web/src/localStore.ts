@@ -1,4 +1,4 @@
-import { CLEFS, NAME_SYSTEMS, REPRESENTATIONS, keySignatureAlter, midiForNote,
+import { CLEFS, NAME_SYSTEMS, REPRESENTATIONS, difficultyPreset, keySignatureAlter, midiForNote,
   type Clef,
   type DifficultyLevel,
   type DifficultySettings,
@@ -57,6 +57,13 @@ export interface LocalTrainerSettings {
   };
   autoAdvance: boolean;
   playbackMode: "webaudio" | "midi";
+}
+
+export function resolveInitialDifficulty(settings: LocalTrainerSettings | null): DifficultySettings {
+  const difficulty = settings?.customDifficulty
+    ? settings.difficulty
+    : difficultyPreset(settings?.level ?? 1).settings;
+  return { ...difficulty };
 }
 
 export interface LocalDirectionProgress {

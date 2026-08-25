@@ -16,7 +16,7 @@ import { chooseMixedDirection, recordSessionAttempt, type SessionStats } from ".
 import { useMidi } from "./useMidi.js";
 import {
   LocalStoreError, createProfile, getActiveProfile, getProgress, leaveProfile, listProfiles,
-  loadSettings, recordAttempt, saveSettings, selectProfile,
+  loadSettings, recordAttempt, resolveInitialDifficulty, saveSettings, selectProfile,
   type LocalProfile, type LocalProfileSummary, type LocalTrainerSettings
 } from "./localStore.js";
 
@@ -77,7 +77,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     try { return { settings: loadSettings(profile.id), stats: getProgress(profile.id).directions as SessionStats, error: "" }; }
     catch { return { settings: null, stats: {} as SessionStats, error: "Локальное хранилище недоступно: изменения этой сессии могут не сохраниться." }; }
   });
-  const initialDifficulty = stored.settings?.difficulty ?? difficultyPreset(1).settings;
+  const initialDifficulty = resolveInitialDifficulty(stored.settings);
   const [level, setLevel] = useState<DifficultyLevel>(stored.settings?.level ?? 1);
   const [customDifficulty, setCustomDifficulty] = useState(stored.settings?.customDifficulty ?? false);
   const [difficulty, setDifficulty] = useState<DifficultySettings>(initialDifficulty);
