@@ -34,4 +34,18 @@ describe("MusicXML", () => {
     expect(flat).toContain("<alter>-1</alter>");
     expect(flat).toContain("<accidental>flat</accidental>");
   });
+
+  it("writes five equal-duration notes on a staff wide enough for seven key signs", () => {
+    const notes = [60, 62, 64, 65, 67].map(noteFromMidi);
+    const xml = noteToMusicXml(notes, "treble", 7, [null, null, null, 0, null]);
+    const visibleNotes = xml.match(/<note>/g) ?? [];
+
+    expect(xml).toContain('<measure number="1" implicit="yes" width="648">');
+    expect(xml).toContain("<key><fifths>7</fifths></key>");
+    expect(visibleNotes).toHaveLength(5);
+    expect(xml.match(/<duration>1<\/duration>/g)).toHaveLength(5);
+    expect(xml.match(/<type>quarter<\/type>/g)).toHaveLength(5);
+    expect(xml).toContain("<accidental>natural</accidental>");
+    expect(xml).not.toContain("<time>");
+  });
 });

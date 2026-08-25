@@ -109,6 +109,122 @@ describe("music domain", () => {
     expect(isCorrectAnswer(question, question.note.midi)).toBe(true);
   });
 
+  it("creates ordered sequences from one through five notes with bounded diatonic movement", () => {
+    const notes = notesForClefDifficulty("treble", 3);
+
+    for (const notesPerQuestion of [1, 2, 3, 4, 5] as const) {
+      const question = createQuestion({
+        direction: { source: "notation", target: "sound" },
+        clef: "treble",
+        nameSystem: "all",
+        notes,
+        notesPerQuestion,
+        maxMelodicDistance: 2,
+        rng: () => 0
+      });
+
+      expect(question.sequence).toHaveLength(notesPerQuestion);
+      expect(question.optionSequences).toHaveLength(4);
+      for (let index = 1; index < question.sequence.length; index += 1) {
+        expect(Math.abs(
+          diatonicIndex(question.sequence[index]!) - diatonicIndex(question.sequence[index - 1]!)
+        )).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  it("compares the complete ordered sequence exactly", () => {
+    const question = createQuestion({
+      direction: { source: "sound", target: "keyboard" },
+      clef: "alto",
+      nameSystem: "de",
+      notesPerQuestion: 3,
+      maxMelodicDistance: 2,
+      rng: () => 0
+    });
+    const answer = question.sequence.map((note) => note.midi);
+
+    expect(isCorrectAnswer(question, answer)).toBe(true);
+    expect(isCorrectAnswer(question, answer.slice(0, 2))).toBe(false);
+    expect(isCorrectAnswer(question, [answer[1]!, answer[0]!, answer[2]!])).toBe(false);
+    expect(isCorrectAnswer(question, answer[0]!)).toBe(false);
+  });
+
+  it("keeps a contextual same-step accidental distractor when the accidental is not first", () => {
+    const randomValues = [0.5, 0.5, 0.5, 0.99, 0];
+    let randomIndex = 0;
+    const question = createQuestion({
+      direction: { source: "notation", target: "name" },
+      clef: "treble",
+      nameSystem: "all",
+      notes: notesForClefDifficulty("treble", 2),
+      notesPerQuestion: 3,
+      keyFifths: -2,
+      allowWrittenAccidentals: true,
+      rng: () => randomValues[randomIndex++] ?? 0
+    });
+    const accidentalPosition = question.writtenAccidentals.findIndex((accidental) => accidental !== null);
+
+    expect(accidentalPosition).toBe(2);
+    const writtenNote = question.sequence[accidentalPosition]!;
+    const inheritedAlter = keySignatureAlter(writtenNote.step, question.keyFifths);
+    expect(question.optionSequences).toContainEqual(question.sequence.map((note, index) => (
+      index === accidentalPosition
+        ? { ...note, alter: inheritedAlter, midi: midiForNote({ ...note, alter: inheritedAlter }) }
+        : note
+    )));
+  });
+
+  it("keeps option sequences unique and low-level mutations sufficiently distant", () => {
+    const settings = difficultyPreset(1).settings;
+    const question = createQuestion({
+      direction: { source: "name", target: "notation" },
+      clef: "bass",
+      nameSystem: "ru",
+      notes: notesForClefDifficulty("bass", settings.ledgerLines),
+      notesPerQuestion: 3,
+      optionCount: settings.optionCount,
+      minDiatonicDistance: settings.minDiatonicDistance,
+      maxMelodicDistance: settings.maxMelodicDistance,
+      rng: () => 0
+    });
+    const keys = question.optionSequences.map((sequence) => sequence.map((note) => note.midi).join(","));
+
+    expect(new Set(keys).size).toBe(question.optionSequences.length);
+    for (const option of question.optionSequences) {
+      const changedPositions = option.flatMap((note, index) => (
+        note.midi === question.sequence[index]?.midi ? [] : [index]
+      ));
+      if (changedPositions.length === 0) continue;
+      expect(changedPositions).toHaveLength(1);
+      const position = changedPositions[0]!;
+      expect(Math.abs(
+        diatonicIndex(option[position]!) - diatonicIndex(question.sequence[position]!)
+      )).toBeGreaterThanOrEqual(settings.minDiatonicDistance);
+    }
+  });
+
+  it("rejects invalid sequence settings", () => {
+    const base = {
+      direction: { source: "notation", target: "name" } as const,
+      clef: "treble" as const,
+      nameSystem: "all" as const
+    };
+
+    expect(() => createQuestion({ ...base, notesPerQuestion: 0 })).toThrow(
+      "Notes per question must be an integer from 1 to 5"
+    );
+    expect(() => createQuestion({ ...base, notesPerQuestion: 6 })).toThrow(
+      "Notes per question must be an integer from 1 to 5"
+    );
+    expect(() => createQuestion({ ...base, maxMelodicDistance: 0 })).toThrow(
+      "Maximum melodic distance must be an integer from 1 to 8"
+    );
+    expect(() => createQuestion({ ...base, maxMelodicDistance: 9 })).toThrow(
+      "Maximum melodic distance must be an integer from 1 to 8"
+    );
+  });
+
   it("avoids the previous note when alternatives exist", () => {
     const notes = createNaturalRange(60, 65);
     const question = createQuestion({
