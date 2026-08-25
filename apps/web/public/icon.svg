@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Связи нот</title>
+  <rect width="512" height="512" rx="112" fill="#f5efe4"/>
+  <path d="M112 176h288M112 216h288M112 256h288M112 296h288M112 336h288" fill="none" stroke="#867866" stroke-width="10" stroke-linecap="round"/>
+  <path d="M300 142v189c0 34-29 62-65 62-31 0-55-19-55-45 0-28 28-51 63-51 14 0 27 3 37 9V169l120-27v47z" fill="#304b3f"/>
+  <circle cx="235" cy="348" r="39" fill="#d66f47"/>
+</svg>
