@@ -114,9 +114,18 @@ export function createQuestion(options: CreateQuestionOptions): Question {
     seen.add(sequenceKey(contextual));
     distractorSequences.push(contextual);
   }
+  const fitsMelodicContext = (candidate: Note, position: number): boolean => {
+    const previous = inheritedSequence[position - 1];
+    const next = inheritedSequence[position + 1];
+    return (previous === undefined
+      || Math.abs(diatonicIndex(candidate) - diatonicIndex(previous)) <= maxMelodicDistance)
+      && (next === undefined
+        || Math.abs(diatonicIndex(candidate) - diatonicIndex(next)) <= maxMelodicDistance);
+  };
   const mutationCandidates = sequence.flatMap((target, position) => (
     eligibleDistractors(inheritedSequence[position]!)
       .filter((candidate) => candidate.midi !== target.midi)
+      .filter((candidate) => fitsMelodicContext(candidate, position))
       .map((candidate) => ({ position, candidate }))
   ));
   for (const mutation of shuffled(mutationCandidates, rng)) {

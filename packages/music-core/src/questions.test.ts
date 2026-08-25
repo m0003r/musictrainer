@@ -133,6 +133,35 @@ describe("music domain", () => {
     }
   });
 
+  it("keeps every answer option within the configured melodic movement", () => {
+    const notes = notesForClefDifficulty("treble", 3);
+
+    for (let seed = 1; seed <= 25; seed += 1) {
+      let state = seed;
+      const rng = () => {
+        state = (state * 16_807) % 2_147_483_647;
+        return (state - 1) / 2_147_483_646;
+      };
+      const question = createQuestion({
+        direction: { source: "notation", target: "sound" },
+        clef: "treble",
+        nameSystem: "all",
+        notes,
+        notesPerQuestion: 5,
+        maxMelodicDistance: 1,
+        rng
+      });
+
+      for (const option of question.optionSequences) {
+        for (let index = 1; index < option.length; index += 1) {
+          expect(Math.abs(
+            diatonicIndex(option[index]!) - diatonicIndex(option[index - 1]!)
+          ), `seed ${seed}, option ${option.map((note) => note.midi).join(",")}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
   it("compares the complete ordered sequence exactly", () => {
     const question = createQuestion({
       direction: { source: "sound", target: "keyboard" },
@@ -159,6 +188,7 @@ describe("music domain", () => {
       nameSystem: "all",
       notes: notesForClefDifficulty("treble", 2),
       notesPerQuestion: 3,
+      maxMelodicDistance: 1,
       keyFifths: -2,
       allowWrittenAccidentals: true,
       rng: () => randomValues[randomIndex++] ?? 0
@@ -168,11 +198,17 @@ describe("music domain", () => {
     expect(accidentalPosition).toBe(2);
     const writtenNote = question.sequence[accidentalPosition]!;
     const inheritedAlter = keySignatureAlter(writtenNote.step, question.keyFifths);
-    expect(question.optionSequences).toContainEqual(question.sequence.map((note, index) => (
+    const contextual = question.sequence.map((note, index) => (
       index === accidentalPosition
         ? { ...note, alter: inheritedAlter, midi: midiForNote({ ...note, alter: inheritedAlter }) }
         : note
-    )));
+    ));
+    expect(question.optionSequences).toContainEqual(contextual);
+    for (let index = 1; index < contextual.length; index += 1) {
+      expect(Math.abs(
+        diatonicIndex(contextual[index]!) - diatonicIndex(contextual[index - 1]!)
+      )).toBeLessThanOrEqual(1);
+    }
   });
 
   it("keeps option sequences unique and low-level mutations sufficiently distant", () => {
