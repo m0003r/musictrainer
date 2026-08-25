@@ -126,4 +126,48 @@ describe("audio playback routing", () => {
     const noteOns = send.mock.calls.filter(([message]) => message[0] === 0x90);
     expect(noteOns).toEqual([[[0x90, 60, 100]]]);
   });
+
+  it("silences active Web Audio voices when a sequence is cancelled", () => {
+    const context = installAudioContext();
+
+    const playback = playSequence([60], 100);
+    const oscillators = context.createOscillator.mock.results.map(({ value }) => value);
+    playback.cancel();
+
+    expect(oscillators).toHaveLength(2);
+    for (const oscillator of oscillators) {
+      expect(oscillator.stop).toHaveBeenLastCalledWith(context.currentTime);
+    }
+  });
+
+  it("sends one immediate MIDI note-off and cancels the scheduled duplicate", () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    configurePlayback("midi", { send } as unknown as MIDIOutput);
+
+    const playback = playSequence([65], 100);
+    playback.cancel();
+
+    expect(send.mock.calls).toEqual([
+      [[0x90, 65, 100]],
+      [[0x80, 65, 0]]
+    ]);
+    vi.advanceTimersByTime(1000);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not silence another sequence when one Web Audio sequence is cancelled", () => {
+    const context = installAudioContext();
+
+    const first = playSequence([60], 100);
+    playSequence([67], 100);
+    const oscillators = context.createOscillator.mock.results.map(({ value }) => value);
+    first.cancel();
+
+    expect(oscillators).toHaveLength(4);
+    expect(oscillators[0].stop).toHaveBeenLastCalledWith(context.currentTime);
+    expect(oscillators[1].stop).toHaveBeenLastCalledWith(context.currentTime);
+    expect(oscillators[2].stop).toHaveBeenCalledOnce();
+    expect(oscillators[3].stop).toHaveBeenCalledOnce();
+  });
 });
