@@ -33,6 +33,7 @@ interface PracticeSettingsProps {
   clefs: readonly Clef[];
   hints: HintSettings;
   autoAdvance: boolean;
+  pendingNextQuestion: boolean;
   directionCount: number;
   midiControl: ReactNode;
   onLevelChange: (level: DifficultyLevel) => void;
@@ -54,16 +55,17 @@ function CheckChip({ checked, label, onChange }: { checked: boolean; label: stri
 }
 
 export function PracticeSettings(props: PracticeSettingsProps) {
-  const [open, setOpen] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches);
+  const [open, setOpen] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches);
   const preset = difficultyPreset(props.level);
 
   return (
     <details className="setup-panel" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
         <span>Настройки</span>
-        <small>{props.customDifficulty ? "Своя сложность" : `Уровень ${props.level}`} · связей: {props.directionCount} · ключей: {props.clefs.length}</small>
+        <small>{props.customDifficulty ? "Своя сложность" : `Уровень ${props.level}`} · связей: {props.directionCount} · ключей: {props.clefs.length}{props.pendingNextQuestion ? " · изменения со следующего примера" : ""}</small>
       </summary>
       <div className="setup-panel-body">
+        {props.pendingNextQuestion && <p className="pending-settings" role="status">Новые параметры применятся со следующего примера.</p>}
         <section className="setting-section difficulty-section">
           <div className="setting-title-row">
             <h2>Сложность</h2>

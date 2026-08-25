@@ -569,6 +569,7 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
   border-top: 1px solid #e3d9ca;
   scrollbar-width: thin;
 }
+.pending-settings { margin: 0; padding: 9px 16px; color: #624817; background: #fff3cf; font-size: 0.72rem; font-weight: 750; }
 .setting-section {
   min-width: 0;
   margin: 0;

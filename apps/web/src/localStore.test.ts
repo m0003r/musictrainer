@@ -34,13 +34,9 @@ function attempt(overrides: Partial<LocalAttempt> = {}): LocalAttempt {
     target: "keyboard",
     clef: "treble",
     nameSystem: "all",
-    expectedMidi: 60,
-    expectedStep: "C",
-    expectedOctave: 4,
-    expectedAlter: 0,
     keyFifths: 0,
-    writtenAccidental: null,
-    answeredMidi: 60,
+    expectedSequence: [{ midi: 60, step: "C", octave: 4, alter: 0, writtenAccidental: null }],
+    answeredSequence: [60],
     correct: true,
     responseTimeMs: 800,
     inputMethod: "pointer",
@@ -98,7 +94,7 @@ describe("local profiles", () => {
 
   it("keeps attempts and progress isolated by profile", () => {
     const first = createProfile("Первый");
-    recordAttempt(attempt({ correct: false, answeredMidi: 61, responseTimeMs: 1200 }));
+    recordAttempt(attempt({ correct: false, answeredSequence: [61], responseTimeMs: 1200 }));
     recordAttempt(attempt({ questionId: "question-2", occurredAt: "2026-08-25T12:01:00.000Z" }));
     const second = createProfile("Второй");
     recordAttempt(attempt({ source: "sound", questionId: "question-3", occurredAt: "2026-08-25T13:00:00.000Z" }));
@@ -134,6 +130,23 @@ describe("local profiles", () => {
     createProfile("Второй");
     expect(loadSettings()).toBeNull();
     expect(loadSettings(first.id)).toEqual(settings);
+  });
+
+  it("stores and validates complete ordered sequences with per-note accidentals", () => {
+    createProfile("Анна");
+    const sequenceAttempt = attempt({
+      keyFifths: -1,
+      expectedSequence: [
+        { midi: 70, step: "B", octave: 4, alter: -1, writtenAccidental: null },
+        { midi: 62, step: "D", octave: 4, alter: 0, writtenAccidental: null },
+        { midi: 71, step: "B", octave: 4, alter: 0, writtenAccidental: 0 }
+      ],
+      answeredSequence: [70, 62, 71]
+    });
+    recordAttempt(sequenceAttempt);
+    expect(getProgress().totalAttempts).toBe(1);
+    expect(() => recordAttempt({ ...sequenceAttempt, answeredSequence: [70, 62, 70], correct: true }))
+      .toThrowError(expect.objectContaining({ code: "invalid_attempt" }));
   });
 
   it("rejects unknown storage versions without overwriting them", () => {

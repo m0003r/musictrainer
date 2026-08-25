@@ -1,12 +1,12 @@
-import type {
-  Clef,
-  DifficultyLevel,
-  DifficultySettings,
-  KeyFifths,
-  NameSystem,
-  Representation,
-  Step,
-  WrittenAccidental
+import { keySignatureAlter, midiForNote,
+  type Clef,
+  type DifficultyLevel,
+  type DifficultySettings,
+  type KeyFifths,
+  type NameSystem,
+  type Representation,
+  type Step,
+  type WrittenAccidental
 } from "@music-trainer/core";
 
 export const LOCAL_STORE_VERSION = 1 as const;
@@ -28,15 +28,15 @@ export interface LocalAttempt {
   target: Representation;
   clef: Clef;
   nameSystem: NameSystem;
-  expectedMidi: number;
-  expectedStep: Step;
-  expectedOctave: number;
-  expectedAlter: number;
   keyFifths: KeyFifths;
-  writtenAccidental: WrittenAccidental | null;
-  expectedSequence?: number[];
-  answeredSequence?: number[];
-  answeredMidi: number;
+  expectedSequence: Array<{
+    midi: number;
+    step: Step;
+    octave: number;
+    alter: number;
+    writtenAccidental: WrittenAccidental | null;
+  }>;
+  answeredSequence: number[];
   correct: boolean;
   responseTimeMs: number;
   inputMethod: "pointer" | "keyboard" | "midi";
@@ -141,6 +141,8 @@ function isStoredAttempt(value: unknown): value is StoredAttempt {
     && typeof value.questionId === "string"
     && typeof value.source === "string"
     && typeof value.target === "string"
+    && Array.isArray(value.expectedSequence)
+    && Array.isArray(value.answeredSequence)
     && typeof value.correct === "boolean"
     && typeof value.responseTimeMs === "number"
     && typeof value.occurredAt === "string";
@@ -260,8 +262,25 @@ export function leaveProfile(): void {
 export function recordAttempt(attempt: LocalAttempt, profileId?: number): void {
   const state = readState();
   const profile = resolveProfile(state, profileId);
+  const expectedMidis = attempt.expectedSequence.map((note) => note.midi);
+  const validSequence = attempt.expectedSequence.length >= 1
+    && attempt.expectedSequence.length <= 5
+    && attempt.answeredSequence.length === attempt.expectedSequence.length
+    && attempt.expectedSequence.every((note) => {
+      const inherited = keySignatureAlter(note.step, attempt.keyFifths);
+      const accidentalIsValid = note.writtenAccidental === null
+        ? note.alter === inherited
+        : note.alter === note.writtenAccidental && note.writtenAccidental !== inherited;
+      return Number.isInteger(note.midi) && note.midi >= 0 && note.midi <= 127
+        && midiForNote(note) === note.midi && accidentalIsValid;
+    })
+    && attempt.answeredSequence.every((midi) => Number.isInteger(midi) && midi >= 0 && midi <= 127);
+  const computedCorrect = validSequence
+    && expectedMidis.every((midi, index) => midi === attempt.answeredSequence[index]);
   if (
     attempt.source === attempt.target
+    || !validSequence
+    || attempt.correct !== computedCorrect
     || !Number.isFinite(attempt.responseTimeMs)
     || attempt.responseTimeMs < 0
     || Number.isNaN(Date.parse(attempt.occurredAt))

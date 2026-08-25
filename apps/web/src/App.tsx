@@ -13,11 +13,13 @@ import { PracticeSettings, type HintSettings } from "./components/PracticeSettin
 import { RepresentationView } from "./components/RepresentationView.js";
 import { chooseMixedDirection, recordSessionAttempt, type SessionStats } from "./session.js";
 import { useMidi } from "./useMidi.js";
+import {
+  LocalStoreError, createProfile, getActiveProfile, getProgress, leaveProfile, listProfiles,
+  loadSettings, recordAttempt, saveSettings, selectProfile,
+  type LocalProfile, type LocalProfileSummary, type LocalTrainerSettings
+} from "./localStore.js";
 
 type InputMethod = "pointer" | "keyboard" | "midi";
-interface Profile { id: number; name: string; }
-interface ProfileSummary extends Profile { attempts: number; lastAttemptAt: string | null; }
-
 const MIDI_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"] as const;
 function scientificMidiName(midi: number): string {
   return `${MIDI_NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
@@ -39,11 +41,6 @@ function keyboardRangeForNotes(notes: readonly Note[]): { minMidi: number; maxMi
     minMidi: Math.max(0, noteFromDiatonicIndex(diatonicIndex(first) - 1).midi),
     maxMidi: Math.min(127, noteFromDiatonicIndex(diatonicIndex(last) + 1).midi)
   };
-}
-async function requestProgress(): Promise<SessionStats | null> {
-  const response = await fetch("/api/progress");
-  if (!response.ok) return null;
-  return (await response.json() as { directions: SessionStats }).directions;
 }
 function speedTrend(stats: SessionStats[string]): string | null {
   const recent = stats.recentCorrectResponseTimeMs;
@@ -74,16 +71,20 @@ function ProgressPanel({ stats }: { stats: SessionStats }) {
   </details>;
 }
 
-function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile: () => Promise<void> }) {
-  const initialDifficulty = difficultyPreset(1).settings;
-  const [level, setLevel] = useState<DifficultyLevel>(1);
-  const [customDifficulty, setCustomDifficulty] = useState(false);
+function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeaveProfile: () => void }) {
+  const [stored] = useState(() => {
+    try { return { settings: loadSettings(profile.id), stats: getProgress(profile.id).directions as SessionStats, error: "" }; }
+    catch { return { settings: null, stats: {} as SessionStats, error: "Локальное хранилище недоступно: изменения этой сессии могут не сохраниться." }; }
+  });
+  const initialDifficulty = stored.settings?.difficulty ?? difficultyPreset(1).settings;
+  const [level, setLevel] = useState<DifficultyLevel>(stored.settings?.level ?? 1);
+  const [customDifficulty, setCustomDifficulty] = useState(stored.settings?.customDifficulty ?? false);
   const [difficulty, setDifficulty] = useState<DifficultySettings>(initialDifficulty);
-  const [sources, setSources] = useState<Representation[]>([...REPRESENTATIONS]);
-  const [targets, setTargets] = useState<Representation[]>([...REPRESENTATIONS]);
-  const [selectedClefs, setSelectedClefs] = useState<Clef[]>(["treble"]);
-  const [hints, setHints] = useState<HintSettings>({ keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
-  const [stats, setStats] = useState<SessionStats>({});
+  const [sources, setSources] = useState<Representation[]>(stored.settings?.sources ?? [...REPRESENTATIONS]);
+  const [targets, setTargets] = useState<Representation[]>(stored.settings?.targets ?? [...REPRESENTATIONS]);
+  const [selectedClefs, setSelectedClefs] = useState<Clef[]>(stored.settings?.selectedClefs ?? ["treble"]);
+  const [hints, setHints] = useState<HintSettings>(stored.settings?.hints ?? { keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
+  const [stats, setStats] = useState<SessionStats>(stored.stats);
   const [question, setQuestion] = useState<Question>(() => createQuestion({
     direction: DIRECTIONS[0]!, clef: "treble", nameSystem: "all",
     notes: notesForClefDifficulty("treble", initialDifficulty.ledgerLines),
@@ -97,16 +98,18 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
   });
   const [answeredMidis, setAnsweredMidis] = useState<number[] | null>(null);
   const [keyboardInput, setKeyboardInput] = useState<number[]>([]);
+  const keyboardInputRef = useRef<number[]>([]);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
-  const [syncWarning, setSyncWarning] = useState(false);
+  const [storageWarning, setStorageWarning] = useState(stored.error);
   const [progressReady, setProgressReady] = useState(false);
   const [promptPresented, setPromptPresented] = useState(false);
   const [correctionComplete, setCorrectionComplete] = useState(true);
   const [inputNotice, setInputNotice] = useState("");
   const [configNotice, setConfigNotice] = useState("");
   const [activeSoundOption, setActiveSoundOption] = useState<number | null>(null);
-  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("webaudio");
-  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(stored.settings?.playbackMode === "midi" ? "webaudio" : stored.settings?.playbackMode ?? "webaudio");
+  const [autoAdvance, setAutoAdvance] = useState(stored.settings?.autoAdvance ?? false);
+  const [settingsPending, setSettingsPending] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const feedbackTimersRef = useRef<number[]>([]);
 
@@ -142,6 +145,8 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
       setQuestion(nextQuestion);
       setKeyboardRange(keyboardRangeForNotes(notePool));
       setConfigNotice("");
+      setSettingsPending(false);
+      keyboardInputRef.current = [];
       setAnsweredMidis(null); setKeyboardInput([]); setLastCorrect(null); setCorrectionComplete(true); setInputNotice(""); setActiveSoundOption(null);
       const immediate = direction.source === "name" || direction.source === "keyboard";
       setPromptPresented(immediate);
@@ -152,12 +157,21 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
   }, [clearFeedbackTimers, difficulty, enabledDirections, selectedClefs]);
 
   useEffect(() => {
-    let cancelled = false;
-    void requestProgress().then((loaded) => {
-      if (!cancelled && loaded) { setStats(loaded); makeNextQuestion(loaded, question.note.midi); }
-    }).catch(() => undefined).finally(() => { if (!cancelled) setProgressReady(true); });
-    return () => { cancelled = true; };
+    setStats(stored.stats);
+    makeNextQuestion(stored.stats, question.note.midi);
+    setProgressReady(true);
   }, [profile.id]);
+  useEffect(() => {
+    const snapshot: LocalTrainerSettings = {
+      level, customDifficulty, difficulty, sources, targets, selectedClefs, hints, autoAdvance, playbackMode
+    };
+    try {
+      saveSettings(snapshot, profile.id);
+      setStorageWarning("");
+    } catch {
+      setStorageWarning("Не удалось сохранить настройки локально. Текущая сессия продолжит работать.");
+    }
+  }, [autoAdvance, customDifficulty, difficulty, hints, level, playbackMode, profile.id, selectedClefs, sources, targets]);
   useEffect(() => () => clearFeedbackTimers(), [clearFeedbackTimers]);
   useEffect(() => {
     let hiddenAt: number | null = null;
@@ -183,51 +197,58 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
     const answer = [...midis];
     const correct = isCorrectAnswer(question, answer);
     const responseTimeMs = Math.max(0, Math.round(performance.now() - startedAtRef.current));
+    keyboardInputRef.current = [];
     setAnsweredMidis(answer); setKeyboardInput([]); setLastCorrect(correct);
     setCorrectionComplete(correct || question.direction.target !== "keyboard");
-    const nextStats = recordSessionAttempt(stats, question.direction, correct, responseTimeMs);
+    let nextStats = recordSessionAttempt(stats, question.direction, correct, responseTimeMs);
     setInputNotice(""); setStats(nextStats);
-    setSyncWarning(false); clearFeedbackTimers();
+    clearFeedbackTimers();
     playSequence(answer);
     if (!correct) feedbackTimersRef.current.push(window.setTimeout(
       () => playSequence(question.sequence.map((note) => note.midi)),
       answer.length * 520 + 220
     ));
+    try {
+      recordAttempt({
+        questionId: question.id, source: question.direction.source, target: question.direction.target,
+        clef: question.clef, nameSystem: question.nameSystem, keyFifths: question.keyFifths,
+        expectedSequence: question.sequence.map((note, index) => ({
+          ...note, writtenAccidental: question.writtenAccidentals[index] ?? null
+        })),
+        answeredSequence: answer, correct, responseTimeMs, inputMethod, occurredAt: new Date().toISOString()
+      }, profile.id);
+      nextStats = getProgress(profile.id).directions as SessionStats;
+      setStats(nextStats); setStorageWarning("");
+    } catch {
+      setStorageWarning("Ответ учтён в текущей сессии, но не сохранился в localStorage.");
+    }
     if (correct && autoAdvance) {
       feedbackTimersRef.current.push(window.setTimeout(() => makeNextQuestion(nextStats, question.note.midi), 1000));
     }
-    void fetch("/api/attempts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
-      questionId: question.id, source: question.direction.source, target: question.direction.target,
-      clef: question.clef, nameSystem: question.nameSystem, expectedMidi: question.note.midi,
-      expectedStep: question.note.step, expectedOctave: question.note.octave, expectedAlter: question.note.alter,
-      keyFifths: question.keyFifths, writtenAccidental: question.writtenAccidental,
-      expectedSequence: question.sequence.map((note) => note.midi), answeredSequence: answer,
-      answeredMidi: answer[0], correct, responseTimeMs, inputMethod, occurredAt: new Date().toISOString()
-    }) }).then(async (response) => {
-      if (!response.ok) { setSyncWarning(true); return; }
-      const persisted = await requestProgress(); if (persisted) setStats(persisted);
-    }).catch(() => setSyncWarning(true));
-  }, [answeredMidis, autoAdvance, clearFeedbackTimers, makeNextQuestion, progressReady, promptPresented, question, stats]);
+  }, [answeredMidis, autoAdvance, clearFeedbackTimers, makeNextQuestion, profile.id, progressReady, promptPresented, question, stats]);
 
   const commitKeyboard = useCallback((midi: number, inputMethod: InputMethod) => {
     if (keyboardCorrectionPending) {
-      const expected = question.sequence[keyboardInput.length]?.midi;
-      if (midi !== expected) { setKeyboardInput([]); setInputNotice("Начните последовательность ещё раз: правильные клавиши выделены зелёным."); playNote(midi); return; }
-      const nextInput = [...keyboardInput, midi];
+      const currentInput = keyboardInputRef.current;
+      const expected = question.sequence[currentInput.length]?.midi;
+      if (midi !== expected) { keyboardInputRef.current = []; setKeyboardInput([]); setInputNotice("Начните последовательность ещё раз: правильные клавиши выделены зелёным."); playNote(midi); return; }
+      const nextInput = [...currentInput, midi];
+      keyboardInputRef.current = nextInput;
       playNote(midi);
       if (nextInput.length === question.sequence.length) {
-        setKeyboardInput([]); setCorrectionComplete(true); setInputNotice("Правильная последовательность сыграна.");
+        keyboardInputRef.current = []; setKeyboardInput([]); setCorrectionComplete(true); setInputNotice("Правильная последовательность сыграна.");
       } else {
         setKeyboardInput(nextInput); setInputNotice(`Коррекция: ${nextInput.length} из ${question.sequence.length}`);
       }
       return;
     }
     if (answeredMidis !== null) return;
-    const nextInput = [...keyboardInput, midi];
+    const nextInput = [...keyboardInputRef.current, midi];
+    keyboardInputRef.current = nextInput;
     playNote(midi);
     if (nextInput.length === question.sequence.length) submitAnswer(nextInput, inputMethod);
     else { setKeyboardInput(nextInput); setInputNotice(`Сыграно ${nextInput.length} из ${question.sequence.length}`); }
-  }, [answeredMidis, keyboardCorrectionPending, keyboardInput, question.sequence, submitAnswer]);
+  }, [answeredMidis, keyboardCorrectionPending, question.sequence, submitAnswer]);
   const auditionSoundCandidate = useCallback((index: number) => {
     if (answeredMidis !== null) return;
     setActiveSoundOption(index); setInputNotice("");
@@ -275,20 +296,20 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
   function toggleSource(value: Representation) {
     const next = toggleInList(sources, value);
     if (next.length === 0 || directionsForSelections(next, targets).length === 0) { setConfigNotice("Должна остаться хотя бы одна связь между разными представлениями."); return; }
-    setSources(next);
+    setSources(next); setSettingsPending(true);
   }
   function toggleTarget(value: Representation) {
     const next = toggleInList(targets, value);
     if (next.length === 0 || directionsForSelections(sources, next).length === 0) { setConfigNotice("Должна остаться хотя бы одна связь между разными представлениями."); return; }
-    setTargets(next);
+    setTargets(next); setSettingsPending(true);
   }
   function toggleClef(value: Clef) {
     const next = toggleInList(selectedClefs, value);
     if (next.length === 0) { setConfigNotice("Оставьте хотя бы один ключ."); return; }
-    setSelectedClefs(next);
+    setSelectedClefs(next); setSettingsPending(true);
   }
-  function setPreset(next: DifficultyLevel) { setLevel(next); setCustomDifficulty(false); setDifficulty(difficultyPreset(next).settings); }
-  function setCustom(next: DifficultySettings) { setCustomDifficulty(true); setDifficulty(next); }
+  function setPreset(next: DifficultyLevel) { setLevel(next); setCustomDifficulty(false); setDifficulty(difficultyPreset(next).settings); setSettingsPending(true); }
+  function setCustom(next: DifficultySettings) { setCustomDifficulty(true); setDifficulty(next); setSettingsPending(true); }
 
   if (!progressReady) return <main className="auth-shell"><p>Загружаем прогресс…</p></main>;
 
@@ -316,7 +337,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
       </div></header>
 
     <div className="trainer-workspace">
-      <PracticeSettings level={level} customDifficulty={customDifficulty} difficulty={difficulty} sources={sources} targets={targets} clefs={selectedClefs} hints={hints} autoAdvance={autoAdvance}
+      <PracticeSettings level={level} customDifficulty={customDifficulty} difficulty={difficulty} sources={sources} targets={targets} clefs={selectedClefs} hints={hints} autoAdvance={autoAdvance} pendingNextQuestion={settingsPending}
         directionCount={enabledDirections.length} midiControl={midiControl} onLevelChange={setPreset} onDifficultyChange={setCustom}
         onToggleSource={toggleSource} onToggleTarget={toggleTarget} onToggleClef={toggleClef}
         onHintChange={(name, enabled) => setHints((current) => ({ ...current, [name]: enabled }))} onAutoAdvanceChange={setAutoAdvance} />
@@ -352,7 +373,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: Profile; onLeaveProfile
             <div><span>Клавиатура</span><PianoKeyboard mode="review" correctMidis={question.sequence.map((note) => note.midi)} range={keyboardRange} compact showNoteLabels={hints.keyboardNoteLabels} showOctaveLabels={hints.keyboardOctaveLabels} /></div>
             <div><span>Звучание</span><button type="button" onClick={() => playSequence(question.sequence.map((note) => note.midi))}>Прослушать</button></div>
           </div>}
-          {syncWarning && <p className="sync-warning">Ответ сохранён в сессии, но backend сейчас недоступен.</p>}
+          {storageWarning && <p className="sync-warning" role="status">{storageWarning}</p>}
         </section>
         <ProgressPanel stats={stats} />
         <footer><p>Узнавание закрепляет связи. Продуктивная запись нот — следующий этап по Хвостенко.</p></footer>
@@ -392,34 +413,34 @@ function OptionAnswer({ question, answeredMidis, promptPresented, range, hints, 
   })}</div>;
 }
 
-function ProfileScreen({ onSelected }: { onSelected: (profile: Profile) => void }) {
-  const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
-  const [name, setName] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
-  useEffect(() => { void fetch("/api/profiles").then(async (response) => {
-    if (!response.ok) throw new Error("profiles unavailable"); setProfiles((await response.json() as { profiles: ProfileSummary[] }).profiles);
-  }).catch(() => { setProfiles([]); setError("Не удалось загрузить локальные профили"); }); }, []);
-  async function selectProfile(profile: Profile) {
-    setLoading(true); setError("");
-    try { const response = await fetch(`/api/profiles/${profile.id}/select`, { method: "POST" }); const body = await response.json() as { profile?: Profile };
-      if (!response.ok || !body.profile) throw new Error(); onSelected(body.profile);
-    } catch { setError("Не удалось открыть профиль"); } finally { setLoading(false); }
+function ProfileScreen({ onSelected }: { onSelected: (profile: LocalProfile) => void }) {
+  const [profiles, setProfiles] = useState<LocalProfileSummary[]>(() => {
+    try { return listProfiles(); } catch { return []; }
+  });
+  const [name, setName] = useState(""); const [error, setError] = useState("");
+  function chooseProfile(profile: LocalProfile) {
+    setError("");
+    try { onSelected(selectProfile(profile.id)); }
+    catch { setError("Не удалось открыть локальный профиль"); }
   }
-  async function createProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setLoading(true); setError("");
-    try { const response = await fetch("/api/profiles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) }); const body = await response.json() as { profile?: Profile; error?: string };
-      if (!response.ok || !body.profile) { setError(body.error === "Profile already exists" ? "Профиль с таким именем уже есть" : "Введите имя профиля"); return; } onSelected(body.profile);
-    } catch { setError("Backend недоступен"); } finally { setLoading(false); }
+  function createLocalProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError("");
+    try { onSelected(createProfile(name)); }
+    catch (cause) {
+      try { setProfiles(listProfiles()); } catch { /* Keep the already visible in-memory list. */ }
+      setError(cause instanceof LocalStoreError && cause.code === "duplicate_profile" ? "Профиль с таким именем уже есть" : "Не удалось создать локальный профиль");
+    }
   }
   return <main className="auth-shell"><section className="profile-card"><p className="eyebrow">Локальная практика</p><h1>Связи нот</h1><p className="lead">Кто сегодня занимается?</p>
-    {profiles === null ? <p className="profiles-loading">Загружаем профили…</p> : <div className="profile-list" aria-label="Локальные профили">{profiles.map((item) => <button type="button" className="profile-tile" key={item.id} onClick={() => void selectProfile(item)} disabled={loading}><span className="profile-avatar" aria-hidden="true">{item.name.trim().charAt(0).toLocaleUpperCase("ru")}</span><span className="profile-details"><strong>{item.name}</strong><small>{item.attempts === 0 ? "Новый профиль" : `${item.attempts} ответов`}</small></span><span className="profile-arrow" aria-hidden="true">→</span></button>)}</div>}
-    <form className="profile-create" onSubmit={(event) => void createProfile(event)}><label>Новый профиль<span className="profile-create-row"><input type="text" maxLength={40} autoComplete="off" placeholder="Имя" value={name} onChange={(event) => setName(event.target.value)} required /><button type="submit" disabled={loading || name.trim().length === 0}>{loading ? "…" : "Создать"}</button></span></label>{error && <p className="auth-error" role="alert">{error}</p>}</form><p className="local-note">Профили и прогресс хранятся только на этом компьютере.</p>
+    <div className="profile-list" aria-label="Локальные профили">{profiles.map((item) => <button type="button" className="profile-tile" key={item.id} onClick={() => chooseProfile(item)}><span className="profile-avatar" aria-hidden="true">{item.name.trim().charAt(0).toLocaleUpperCase("ru")}</span><span className="profile-details"><strong>{item.name}</strong><small>{item.attempts === 0 ? "Новый профиль" : `${item.attempts} ответов`}</small></span><span className="profile-arrow" aria-hidden="true">→</span></button>)}</div>
+    <form className="profile-create" onSubmit={createLocalProfile}><label>Новый профиль<span className="profile-create-row"><input type="text" maxLength={40} autoComplete="off" placeholder="Имя" value={name} onChange={(event) => setName(event.target.value)} required /><button type="submit" disabled={name.trim().length === 0}>Создать</button></span></label>{error && <p className="auth-error" role="alert">{error}</p>}</form><p className="local-note">Профили и прогресс хранятся в этом браузере и не требуют входа.</p>
   </section></main>;
 }
 
 export function App() {
-  const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
-  useEffect(() => { void fetch("/api/profiles/current").then(async (response) => { if (!response.ok) { setProfile(null); return; } setProfile((await response.json() as { profile: Profile }).profile); }).catch(() => setProfile(null)); }, []);
-  if (profile === undefined) return <main className="auth-shell"><p>Загружаем профиль…</p></main>;
+  const [profile, setProfile] = useState<LocalProfile | null>(() => {
+    try { return getActiveProfile(); } catch { return null; }
+  });
   if (profile === null) return <ProfileScreen onSelected={setProfile} />;
-  return <Trainer profile={profile} onLeaveProfile={async () => { await fetch("/api/profiles/leave", { method: "POST" }).catch(() => undefined); setProfile(null); }} />;
+  return <Trainer profile={profile} onLeaveProfile={() => { try { leaveProfile(); } finally { setProfile(null); } }} />;
 }
