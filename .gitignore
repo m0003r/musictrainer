@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.vite/
+coverage/
+.DS_Store
+*.log
+.npm-cache/
+data/
+.playwright-mcp/
+Zadachi_i_uprazhnenia_po_elementarnoy_teorii_muzyki_by_V_Khvostenko.pdf
+musictrainer-auth-desktop.png
+profile-empty-mobile.png
+sound-choice-mobile.png

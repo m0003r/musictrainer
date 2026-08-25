@@ -1,0 +1,23 @@
+{
+  "name": "music-trainer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @music-trainer/core && npm run build -w @music-trainer/api && npm run build -w @music-trainer/web",
+    "test": "npm run test -w @music-trainer/core && npm run test -w @music-trainer/api && npm run test -w @music-trainer/web",
+    "dev:api": "npm run dev -w @music-trainer/api",
+    "dev:web": "npm run dev -w @music-trainer/web",
+    "start": "npm run start -w @music-trainer/api"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.25"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
