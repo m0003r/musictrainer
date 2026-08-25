@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @music-trainer/core && npm run build -w @music-trainer/web",
+    "pretest": "npm run build -w @music-trainer/core",
     "test": "npm run test -w @music-trainer/core && npm run test -w @music-trainer/web",
     "dev": "npm run dev -w @music-trainer/web",
     "dev:web": "npm run dev -w @music-trainer/web"
