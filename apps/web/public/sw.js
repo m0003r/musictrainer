@@ -1,5 +1,8 @@
-const CACHE_VERSION = "music-trainer-shell-v1";
+const BUILD_ID = new URL(self.location.href).searchParams.get("build") ?? "development";
+const CACHE_VERSION = `music-trainer-shell-${BUILD_ID}`;
 const APP_SHELL_URL = new URL("./", self.registration.scope).href;
+const ASSET_MANIFEST_URL = new URL("./asset-manifest.json", self.registration.scope).href;
+const PUBLIC_SHELL_FILES = ["manifest.webmanifest", "icon-192.png", "icon-512.png"];
 const CACHEABLE_DESTINATIONS = new Set([
   "document",
   "font",
@@ -36,11 +39,34 @@ function isStorable(response) {
   return response.status === 200 && response.type === "basic";
 }
 
+async function precacheCompleteAppShell() {
+  const [shellResponse, manifestResponse] = await Promise.all([
+    fetch(new Request(APP_SHELL_URL, { cache: "reload" })),
+    fetch(new Request(ASSET_MANIFEST_URL, { cache: "reload" }))
+  ]);
+  if (!shellResponse.ok || !manifestResponse.ok) throw new Error("Application shell metadata is unavailable");
+
+  const manifest = await manifestResponse.clone().json();
+  const builtFiles = Object.values(manifest).flatMap((entry) => [
+    entry.file,
+    ...(entry.css ?? []),
+    ...(entry.assets ?? [])
+  ]).filter(Boolean);
+  const urls = [...new Set([
+    ...builtFiles.map((path) => new URL(path, APP_SHELL_URL).href),
+    ...PUBLIC_SHELL_FILES.map((path) => new URL(path, APP_SHELL_URL).href)
+  ])];
+  const cache = await caches.open(CACHE_VERSION);
+  await Promise.all([
+    cache.put(APP_SHELL_URL, shellResponse),
+    cache.put(ASSET_MANIFEST_URL, manifestResponse)
+  ]);
+  await cache.addAll(urls);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE_VERSION)
-      .then((cache) => cache.add(new Request(APP_SHELL_URL, { cache: "reload" })))
+    precacheCompleteAppShell()
       .then(() => self.skipWaiting())
   );
 });

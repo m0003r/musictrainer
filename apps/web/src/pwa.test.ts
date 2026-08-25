@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   registerPwa,
@@ -24,12 +25,13 @@ describe("PWA registration", () => {
     await expect(
       registerPwa({
         baseUrl: "https://example.github.io/music-trainer/",
+        buildId: "test-build",
         serviceWorker: { register }
       })
     ).resolves.toBe(registration);
 
     expect(register).toHaveBeenCalledWith(
-      "https://example.github.io/music-trainer/sw.js",
+      "https://example.github.io/music-trainer/sw.js?build=test-build",
       {
         scope: "https://example.github.io/music-trainer/",
         updateViaCache: "none"
@@ -44,6 +46,7 @@ describe("PWA registration", () => {
     await expect(
       registerPwa({
         baseUrl: "https://example.github.io/music-trainer/",
+        buildId: "test-build",
         serviceWorker: { register: vi.fn().mockRejectedValue(error) },
         warn
       })
@@ -66,5 +69,15 @@ describe("PWA registration", () => {
     expect(register).not.toHaveBeenCalled();
     loadListener?.();
     await vi.waitFor(() => expect(register).toHaveBeenCalledOnce());
+  });
+
+  it("pre-caches the complete versioned production bundle", () => {
+    const worker = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
+
+    expect(worker).toContain('searchParams.get("build")');
+    expect(worker).toContain('new URL("./asset-manifest.json"');
+    expect(worker).toContain("Object.values(manifest)");
+    expect(worker).toContain("cache.addAll(urls)");
+    expect(worker).toContain('"manifest.webmanifest", "icon-192.png", "icon-512.png"');
   });
 });

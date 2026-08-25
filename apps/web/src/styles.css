@@ -529,45 +529,77 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 .compact-hero .lead { margin-top: 9px; }
 .trainer-workspace {
   display: grid;
-  grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 16px;
+  gap: 10px;
 }
 .practice-column { min-width: 0; }
 
-.setup-panel {
+.settings-launcher {
   position: sticky;
-  top: 12px;
-  overflow: hidden;
-  max-height: calc(100vh - 24px);
-  border: 1px solid #d5c8b4;
-  border-radius: 22px;
-  background: rgba(255, 253, 248, 0.9);
-  box-shadow: 0 12px 36px rgba(68, 52, 32, 0.09);
-}
-.setup-panel > summary {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 7px 12px;
-  padding: 15px 17px;
+  z-index: 10;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 13px;
+  border: 1px solid #bfb19d;
+  border-radius: 999px;
   color: #35442f;
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 8px 24px rgba(68, 52, 32, 0.13);
   font-weight: 850;
-  cursor: pointer;
 }
-.setup-panel > summary::marker { color: #7d6b51; }
-.setup-panel > summary small {
-  grid-column: 1 / -1;
-  color: #786f64;
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1.35;
+.settings-launcher small { color: #786f64; font-size: 0.7rem; font-weight: 650; }
+.settings-launcher[aria-expanded="true"] { visibility: hidden; }
+.settings-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: rgba(37, 31, 24, 0.34);
+  backdrop-filter: blur(2px);
 }
+.setup-panel {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(390px, calc(100vw - 44px));
+  overflow: hidden;
+  border: 0;
+  border-right: 1px solid #d5c8b4;
+  border-radius: 0 22px 22px 0;
+  background: #fffdf8;
+  box-shadow: 18px 0 50px rgba(42, 32, 22, 0.2);
+  transform: translateX(-105%);
+  transition: transform 180ms ease;
+}
+.setup-panel.is-open { transform: translateX(0); }
+.settings-drawer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 76px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e3d9ca;
+}
+.settings-drawer-heading > div { display: grid; gap: 3px; }
+.settings-drawer-heading strong { color: #35442f; }
+.settings-drawer-heading small { color: #786f64; font-size: 0.7rem; }
+.settings-drawer-heading button { flex: 0 0 44px; width: 44px; height: 44px; border: 1px solid #cbbda8; border-radius: 50%; color: #51483d; background: #fff; font-size: 1.6rem; line-height: 1; }
 .setup-panel-body {
   display: grid;
   gap: 0;
-  max-height: calc(100vh - 92px);
+  max-height: calc(100dvh - 76px);
   overflow: auto;
-  border-top: 1px solid #e3d9ca;
   scrollbar-width: thin;
 }
 .pending-settings { margin: 0; padding: 9px 16px; color: #624817; background: #fff3cf; font-size: 0.72rem; font-weight: 750; }
@@ -646,6 +678,9 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 .options-grid.options-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .options-grid.options-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .options-grid.options-5, .options-grid.options-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.target-notation .options-grid.options-4,
+.target-notation .options-grid.options-5,
+.target-notation .options-grid.options-6 { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
 .option-card { min-height: 168px; }
 .option-card .note-names strong { font-size: 1.15rem; }
 .sound-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -689,9 +724,10 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 @media (max-width: 1120px) {
   .trainer-shell { width: min(100% - 24px, 1540px); padding-top: 16px; }
   .compact-hero { margin-bottom: 12px; }
-  .trainer-workspace { grid-template-columns: minmax(230px, 250px) minmax(0, 1fr); gap: 12px; }
-  .exercise-body { grid-template-columns: 1fr; }
-  .prompt-card { min-height: 220px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
+  .trainer-workspace { gap: 8px; }
+  .exercise-body { grid-template-columns: minmax(260px, 0.68fr) minmax(0, 1.32fr); }
+  .exercise-body.target-keyboard { grid-template-columns: 1fr; }
+  .prompt-card { min-height: 330px; }
   .target-keyboard .prompt-card { min-height: 160px; padding-block: 14px; }
   .keyboard-answer-surface { gap: 10px; padding: 14px 16px 16px; }
   .piano { height: 168px; }
@@ -702,12 +738,13 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 @media (max-width: 760px) {
   .trainer-shell { width: min(100% - 18px, 1540px); padding-top: 16px; }
   .compact-hero { align-items: stretch; flex-direction: column; }
-  .trainer-workspace { grid-template-columns: 1fr; }
-  .setup-panel { position: static; max-height: none; }
-  .setup-panel-body { max-height: none; }
+  .settings-launcher { position: static; max-width: 100%; }
+  .settings-launcher small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .representation-checks { grid-template-columns: 1fr 1fr; }
   .clef-checks { grid-template-columns: 1fr 1fr; }
   .clef-guide { grid-template-columns: 1fr; }
+  .exercise-body { grid-template-columns: 1fr; }
+  .prompt-card { min-height: 220px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
   .exercise-heading { align-items: flex-start; flex-direction: column; }
   .options-grid { grid-template-columns: 1fr 1fr; }
   .options-grid.options-2, .options-grid.options-3, .options-grid.options-4,

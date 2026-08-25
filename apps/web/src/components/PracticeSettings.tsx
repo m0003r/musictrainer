@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   CLEFS,
   CLEF_LABELS,
@@ -55,15 +55,30 @@ function CheckChip({ checked, label, onChange }: { checked: boolean; label: stri
 }
 
 export function PracticeSettings(props: PracticeSettingsProps) {
-  const [open, setOpen] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches);
+  const [open, setOpen] = useState(false);
   const preset = difficultyPreset(props.level);
 
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+
   return (
-    <details className="setup-panel" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>
+    <>
+      <button type="button" className="settings-launcher" aria-expanded={open} aria-controls="practice-settings" onClick={() => setOpen(true)}>
         <span>Настройки</span>
-        <small>{props.customDifficulty ? "Своя сложность" : `Уровень ${props.level}`} · связей: {props.directionCount} · ключей: {props.clefs.length}{props.pendingNextQuestion ? " · изменения со следующего примера" : ""}</small>
-      </summary>
+        <small>{props.customDifficulty ? "Своя сложность" : `Уровень ${props.level}`} · {props.directionCount} связей · {props.clefs.length} ключей{props.pendingNextQuestion ? " · применится дальше" : ""}</small>
+      </button>
+      {open && <button type="button" className="settings-backdrop" aria-label="Закрыть настройки" onClick={() => setOpen(false)} />}
+      <aside id="practice-settings" className={`setup-panel${open ? " is-open" : ""}`} aria-hidden={!open} inert={open ? undefined : true}>
+        <header className="settings-drawer-heading">
+          <div><strong>Настройки практики</strong><small>Изменения содержания — со следующего примера</small></div>
+          <button type="button" aria-label="Закрыть настройки" onClick={() => setOpen(false)}>×</button>
+        </header>
       <div className="setup-panel-body">
         {props.pendingNextQuestion && <p className="pending-settings" role="status">Новые параметры применятся со следующего примера.</p>}
         <section className="setting-section difficulty-section">
@@ -156,6 +171,7 @@ export function PracticeSettings(props: PracticeSettingsProps) {
 
         <div className="setting-section midi-setting">{props.midiControl}</div>
       </div>
-    </details>
+      </aside>
+    </>
   );
 }

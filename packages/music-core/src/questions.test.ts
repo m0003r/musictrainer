@@ -211,6 +211,24 @@ describe("music domain", () => {
     }
   });
 
+  it("prints a restoring accidental when the same staff position returns later in the measure", () => {
+    const question = createQuestion({
+      direction: { source: "notation", target: "name" },
+      clef: "treble",
+      nameSystem: "all",
+      notes: createNaturalRange(60, 62),
+      notesPerQuestion: 3,
+      maxMelodicDistance: 1,
+      optionCount: 2,
+      keyFifths: 0,
+      allowWrittenAccidentals: true,
+      rng: () => 0
+    });
+
+    expect(question.sequence.map((note) => note.midi)).toEqual([59, 62, 60]);
+    expect(question.writtenAccidentals).toEqual([-1, null, 0]);
+  });
+
   it("keeps option sequences unique and low-level mutations sufficiently distant", () => {
     const settings = difficultyPreset(1).settings;
     const question = createQuestion({

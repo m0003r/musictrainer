@@ -156,6 +156,26 @@ describe("local profiles", () => {
     expect(storage.getItem(LOCAL_STORE_KEY)).toBe(future);
   });
 
+  it("rejects corrupted nested settings instead of crashing the trainer later", () => {
+    createProfile("Анна");
+    saveSettings(settings);
+    const state = JSON.parse(storage.getItem(LOCAL_STORE_KEY)!);
+    state.profiles[0].settings.difficulty = {};
+    storage.setItem(LOCAL_STORE_KEY, JSON.stringify(state));
+
+    expect(() => listProfiles()).toThrowError(expect.objectContaining({ code: "corrupt_data" }));
+  });
+
+  it("rejects corrupted persisted note sequences", () => {
+    createProfile("Анна");
+    recordAttempt(attempt());
+    const state = JSON.parse(storage.getItem(LOCAL_STORE_KEY)!);
+    state.attempts[0].expectedSequence[0].midi = 127;
+    storage.setItem(LOCAL_STORE_KEY, JSON.stringify(state));
+
+    expect(() => getProgress()).toThrowError(expect.objectContaining({ code: "corrupt_data" }));
+  });
+
   it("fails explicitly outside a browser", () => {
     Reflect.deleteProperty(globalThis, "window");
     expect(() => listProfiles()).toThrowError(LocalStoreError);

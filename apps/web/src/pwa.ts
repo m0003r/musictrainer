@@ -1,8 +1,15 @@
 export interface PwaRegistrationEnvironment {
   baseUrl?: string;
+  buildId?: string;
   serviceWorker?: Pick<ServiceWorkerContainer, "register">;
   addLoadListener?: (listener: () => void) => void;
   warn?: (message: string, error: unknown) => void;
+}
+
+declare const __PWA_BUILD_ID__: string;
+
+function currentBuildId(): string {
+  return typeof __PWA_BUILD_ID__ === "undefined" ? "development" : __PWA_BUILD_ID__;
 }
 
 export function resolvePwaUrl(path: string, baseUrl: string): string {
@@ -22,9 +29,11 @@ export async function registerPwa(
   }
 
   const baseUrl = environment.baseUrl ?? document.baseURI;
+  const workerUrl = new URL("./sw.js", baseUrl);
+  workerUrl.searchParams.set("build", environment.buildId ?? currentBuildId());
 
   try {
-    return await serviceWorker.register(resolvePwaUrl("./sw.js", baseUrl), {
+    return await serviceWorker.register(workerUrl.href, {
       scope: resolvePwaUrl("./", baseUrl),
       updateViaCache: "none"
     });

@@ -11,6 +11,7 @@ interface CommonProps {
   compact?: boolean;
   showNoteLabels?: boolean;
   showOctaveLabels?: boolean;
+  focusMidi?: number | undefined;
 }
 
 type PianoKeyboardProps = CommonProps & (
@@ -77,7 +78,7 @@ export function PianoKeyboard(props: PianoKeyboardProps) {
     ? props.noteMidis
     : props.mode === "review"
       ? props.correctMidis
-      : props.correctMidis ?? [];
+      : props.focusMidi === undefined ? props.correctMidis ?? [] : [props.focusMidi];
   const scrollTargetKey = scrollTargetMidis.join(",");
 
   useEffect(() => {

@@ -16,4 +16,4 @@ createRoot(root).render(
   </StrictMode>
 );
 
-schedulePwaRegistration();
+if (import.meta.env.PROD) schedulePwaRegistration();

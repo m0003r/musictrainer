@@ -1,4 +1,4 @@
-import { keySignatureAlter, midiForNote,
+import { CLEFS, NAME_SYSTEMS, REPRESENTATIONS, keySignatureAlter, midiForNote,
   type Clef,
   type DifficultyLevel,
   type DifficultySettings,
@@ -126,26 +126,118 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isIntegerIn(value: unknown, minimum: number, maximum: number): boolean {
+  return Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
+}
+
+function isEnumValue<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {
+  return typeof value === "string" && values.includes(value as T[number]);
+}
+
+function isUniqueEnumArray<const T extends readonly string[]>(values: T, value: unknown): value is T[number][] {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every((item) => isEnumValue(values, item))
+    && new Set(value).size === value.length;
+}
+
+function isDifficultySettings(value: unknown): value is DifficultySettings {
+  return isRecord(value)
+    && isIntegerIn(value.ledgerLines, 0, 3)
+    && isIntegerIn(value.optionCount, 2, 6)
+    && isIntegerIn(value.minDiatonicDistance, 1, 4)
+    && isIntegerIn(value.maxKeySignatureFifths, 0, 7)
+    && typeof value.allowWrittenAccidentals === "boolean"
+    && isIntegerIn(value.notesPerQuestion, 1, 5)
+    && isIntegerIn(value.maxMelodicDistance, 1, 8);
+}
+
+function isTrainerSettings(value: unknown): value is LocalTrainerSettings {
+  if (!isRecord(value)
+    || !isIntegerIn(value.level, 1, 6)
+    || typeof value.customDifficulty !== "boolean"
+    || !isDifficultySettings(value.difficulty)
+    || !isUniqueEnumArray(REPRESENTATIONS, value.sources)
+    || !isUniqueEnumArray(REPRESENTATIONS, value.targets)
+    || !isUniqueEnumArray(CLEFS, value.selectedClefs)
+    || !isRecord(value.hints)
+    || typeof value.hints.keyboardNoteLabels !== "boolean"
+    || typeof value.hints.keyboardOctaveLabels !== "boolean"
+    || typeof value.hints.clefGuide !== "boolean"
+    || typeof value.autoAdvance !== "boolean"
+    || (value.playbackMode !== "webaudio" && value.playbackMode !== "midi")) return false;
+  const sources = value.sources as Representation[];
+  const targets = value.targets as Representation[];
+  return sources.some((source) => targets.some((target) => source !== target));
+}
+
+function hasValidExpectedSequence(value: unknown, keyFifths: KeyFifths): boolean {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5) return false;
+  const activeAlterByStaffPosition = new Map<string, number>();
+  return value.every((candidate) => {
+    if (!isRecord(candidate)
+      || !isEnumValue(["C", "D", "E", "F", "G", "A", "B"] as const, candidate.step)
+      || !Number.isInteger(candidate.octave)
+      || !isIntegerIn(candidate.alter, -1, 1)
+      || !isIntegerIn(candidate.midi, 0, 127)
+      || !(candidate.writtenAccidental === null || isIntegerIn(candidate.writtenAccidental, -1, 1))) return false;
+    const position = `${candidate.step}${candidate.octave}`;
+    const inherited = keySignatureAlter(candidate.step, keyFifths);
+    const active = activeAlterByStaffPosition.get(position) ?? inherited;
+    const written = candidate.writtenAccidental as WrittenAccidental | null;
+    const accidentalIsValid = written === null
+      ? candidate.alter === active
+      : candidate.alter === written && written !== active;
+    if (written !== null) activeAlterByStaffPosition.set(position, written);
+    return accidentalIsValid && midiForNote({
+      step: candidate.step,
+      octave: candidate.octave as number,
+      alter: candidate.alter as number
+    }) === candidate.midi;
+  });
+}
+
+function hasValidAttemptPayload(value: Record<string, unknown>): boolean {
+  if (typeof value.questionId !== "string"
+    || !isEnumValue(REPRESENTATIONS, value.source)
+    || !isEnumValue(REPRESENTATIONS, value.target)
+    || value.source === value.target
+    || !isEnumValue(CLEFS, value.clef)
+    || !isEnumValue(NAME_SYSTEMS, value.nameSystem)
+    || !isIntegerIn(value.keyFifths, -7, 7)
+    || !hasValidExpectedSequence(value.expectedSequence, value.keyFifths as KeyFifths)
+    || !Array.isArray(value.answeredSequence)
+    || value.answeredSequence.length !== (value.expectedSequence as unknown[]).length
+    || !value.answeredSequence.every((midi) => isIntegerIn(midi, 0, 127))
+    || typeof value.correct !== "boolean"
+    || typeof value.responseTimeMs !== "number"
+    || !Number.isFinite(value.responseTimeMs)
+    || value.responseTimeMs < 0
+    || (value.inputMethod !== "pointer" && value.inputMethod !== "keyboard" && value.inputMethod !== "midi")
+    || typeof value.occurredAt !== "string"
+    || Number.isNaN(Date.parse(value.occurredAt))) return false;
+  const expectedMidis = (value.expectedSequence as Array<{ midi: number }>).map((note) => note.midi);
+  const answeredSequence = value.answeredSequence as number[];
+  const computedCorrect = expectedMidis.every((midi, index) => midi === answeredSequence[index]);
+  return value.correct === computedCorrect;
+}
+
 function isStoredProfile(value: unknown): value is StoredProfile {
   return isRecord(value)
-    && Number.isInteger(value.id)
+    && isIntegerIn(value.id, 1, Number.MAX_SAFE_INTEGER)
     && typeof value.name === "string"
+    && value.name.length >= 1
+    && value.name.length <= 40
     && typeof value.nameKey === "string"
     && typeof value.createdAt === "string"
-    && (value.settings === null || isRecord(value.settings));
+    && !Number.isNaN(Date.parse(value.createdAt))
+    && (value.settings === null || isTrainerSettings(value.settings));
 }
 
 function isStoredAttempt(value: unknown): value is StoredAttempt {
   return isRecord(value)
-    && Number.isInteger(value.profileId)
-    && typeof value.questionId === "string"
-    && typeof value.source === "string"
-    && typeof value.target === "string"
-    && Array.isArray(value.expectedSequence)
-    && Array.isArray(value.answeredSequence)
-    && typeof value.correct === "boolean"
-    && typeof value.responseTimeMs === "number"
-    && typeof value.occurredAt === "string";
+    && isIntegerIn(value.profileId, 1, Number.MAX_SAFE_INTEGER)
+    && hasValidAttemptPayload(value);
 }
 
 function readState(): StoreStateV1 {
@@ -169,6 +261,18 @@ function readState(): StoreStateV1 {
     || !value.attempts.every(isStoredAttempt)
   ) {
     throw new LocalStoreError("corrupt_data", "Stored local profile data has an invalid shape");
+  }
+  const profiles = value.profiles as StoredProfile[];
+  const attempts = value.attempts as StoredAttempt[];
+  const profileIds = new Set(profiles.map((profile) => profile.id));
+  const profileNameKeys = new Set(profiles.map((profile) => profile.nameKey));
+  if (profileIds.size !== profiles.length
+    || profileNameKeys.size !== profiles.length
+    || profiles.some((profile) => profile.nameKey !== profileNameKey(profile.name))
+    || (value.activeProfileId !== null && !profileIds.has(value.activeProfileId as number))
+    || attempts.some((attempt) => !profileIds.has(attempt.profileId))
+    || (value.nextProfileId as number) <= Math.max(0, ...profileIds)) {
+    throw new LocalStoreError("corrupt_data", "Stored local profile data has inconsistent references");
   }
   return value as unknown as StoreStateV1;
 }
@@ -262,29 +366,7 @@ export function leaveProfile(): void {
 export function recordAttempt(attempt: LocalAttempt, profileId?: number): void {
   const state = readState();
   const profile = resolveProfile(state, profileId);
-  const expectedMidis = attempt.expectedSequence.map((note) => note.midi);
-  const validSequence = attempt.expectedSequence.length >= 1
-    && attempt.expectedSequence.length <= 5
-    && attempt.answeredSequence.length === attempt.expectedSequence.length
-    && attempt.expectedSequence.every((note) => {
-      const inherited = keySignatureAlter(note.step, attempt.keyFifths);
-      const accidentalIsValid = note.writtenAccidental === null
-        ? note.alter === inherited
-        : note.alter === note.writtenAccidental && note.writtenAccidental !== inherited;
-      return Number.isInteger(note.midi) && note.midi >= 0 && note.midi <= 127
-        && midiForNote(note) === note.midi && accidentalIsValid;
-    })
-    && attempt.answeredSequence.every((midi) => Number.isInteger(midi) && midi >= 0 && midi <= 127);
-  const computedCorrect = validSequence
-    && expectedMidis.every((midi, index) => midi === attempt.answeredSequence[index]);
-  if (
-    attempt.source === attempt.target
-    || !validSequence
-    || attempt.correct !== computedCorrect
-    || !Number.isFinite(attempt.responseTimeMs)
-    || attempt.responseTimeMs < 0
-    || Number.isNaN(Date.parse(attempt.occurredAt))
-  ) {
+  if (!hasValidAttemptPayload(attempt as unknown as Record<string, unknown>)) {
     throw new LocalStoreError("invalid_attempt", "Attempt data is invalid");
   }
   state.attempts.push({ ...attempt, profileId: profile.id });

@@ -1,14 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const pwaBuildId = process.env.GITHUB_SHA ?? Date.now().toString(36);
+
 export default defineConfig({
   base: "./",
+  define: { __PWA_BUILD_ID__: JSON.stringify(pwaBuildId) },
+  build: { manifest: "asset-manifest.json" },
   plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      "/api": "http://127.0.0.1:3001",
-      "/health": "http://127.0.0.1:3001"
-    }
-  }
+  server: { port: 5173 }
 });

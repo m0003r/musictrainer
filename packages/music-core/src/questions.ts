@@ -95,15 +95,24 @@ export function createQuestion(options: CreateQuestionOptions): Question {
   const accidentalIndex = options.allowWrittenAccidentals
     ? randomIndex(inheritedSequence.length, rng)
     : -1;
-  const writtenAccidentals = inheritedSequence.map((inherited, index) => (
-    index === accidentalIndex ? chooseWrittenAccidental(inherited, keyFifths, rng) : null
+  const designatedAccidental = accidentalIndex >= 0
+    ? chooseWrittenAccidental(inheritedSequence[accidentalIndex]!, keyFifths, rng)
+    : null;
+  const desiredAlters = inheritedSequence.map((inherited, index) => (
+    index === accidentalIndex ? designatedAccidental! : inherited.alter
   ));
-  const sequence = inheritedSequence.map((inherited, index) => {
-    const written = writtenAccidentals[index];
-    return written === null || written === undefined
-      ? inherited
-      : noteWithWrittenAccidental(inherited, written);
+  const activeAlterByStaffPosition = new Map<string, number>();
+  const writtenAccidentals = inheritedSequence.map((inherited, index) => {
+    const position = `${inherited.step}${inherited.octave}`;
+    const activeAlter = activeAlterByStaffPosition.get(position) ?? inherited.alter;
+    const desiredAlter = desiredAlters[index]!;
+    if (desiredAlter === activeAlter) return null;
+    activeAlterByStaffPosition.set(position, desiredAlter);
+    return desiredAlter as -1 | 0 | 1;
   });
+  const sequence = inheritedSequence.map((inherited, index) => (
+    noteWithWrittenAccidental(inherited, desiredAlters[index]! as -1 | 0 | 1)
+  ));
 
   const sequenceKey = (notes: readonly Note[]) => notes.map((item) => item.midi).join(",");
   const distractorSequences: Note[][] = [];

@@ -5,12 +5,13 @@ import {
   noteFromDiatonicIndex, notesForClefDifficulty, type Clef, type DifficultyLevel, type DifficultySettings,
   randomKeyFifths, type Note, type Question, type Representation
 } from "@music-trainer/core";
-import { configurePlayback, playNote, playSequence, type PlaybackMode } from "./audio.js";
+import { configurePlayback, disposeAudio, playNote, playSequence, type PlaybackMode, type SequencePlayback } from "./audio.js";
 import { ClefGuide } from "./components/ClefGuide.js";
 import { NotationCard } from "./components/NotationCard.js";
 import { PianoKeyboard } from "./components/PianoKeyboard.js";
 import { PracticeSettings, type HintSettings } from "./components/PracticeSettings.js";
 import { RepresentationView } from "./components/RepresentationView.js";
+import { scheduleCorrectAutoAdvance } from "./feedback.js";
 import { chooseMixedDirection, recordSessionAttempt, type SessionStats } from "./session.js";
 import { useMidi } from "./useMidi.js";
 import {
@@ -84,6 +85,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const [targets, setTargets] = useState<Representation[]>(stored.settings?.targets ?? [...REPRESENTATIONS]);
   const [selectedClefs, setSelectedClefs] = useState<Clef[]>(stored.settings?.selectedClefs ?? ["treble"]);
   const [hints, setHints] = useState<HintSettings>(stored.settings?.hints ?? { keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
+  const [questionHints, setQuestionHints] = useState<HintSettings>(stored.settings?.hints ?? { keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
   const [stats, setStats] = useState<SessionStats>(stored.stats);
   const [question, setQuestion] = useState<Question>(() => createQuestion({
     direction: DIRECTIONS[0]!, clef: "treble", nameSystem: "all",
@@ -109,9 +111,11 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const [activeSoundOption, setActiveSoundOption] = useState<number | null>(null);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(stored.settings?.playbackMode === "midi" ? "webaudio" : stored.settings?.playbackMode ?? "webaudio");
   const [autoAdvance, setAutoAdvance] = useState(stored.settings?.autoAdvance ?? false);
+  const [questionAutoAdvance, setQuestionAutoAdvance] = useState(stored.settings?.autoAdvance ?? false);
   const [settingsPending, setSettingsPending] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const feedbackTimersRef = useRef<number[]>([]);
+  const activePlaybackRef = useRef<SequencePlayback | null>(null);
 
   const enabledDirections = useMemo(() => directionsForSelections(sources, targets), [sources, targets]);
   const totalAttempts = Object.values(stats).reduce((sum, value) => sum + value.attempts, 0);
@@ -122,6 +126,12 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const clearFeedbackTimers = useCallback(() => {
     for (const timer of feedbackTimersRef.current) window.clearTimeout(timer);
     feedbackTimersRef.current = [];
+    activePlaybackRef.current?.cancel();
+    activePlaybackRef.current = null;
+  }, []);
+  const playSequenceNow = useCallback((midis: readonly number[], gapMs = 520) => {
+    activePlaybackRef.current?.cancel();
+    activePlaybackRef.current = playSequence(midis, gapMs);
   }, []);
 
   const makeNextQuestion = useCallback((nextStats: SessionStats, previousMidi?: number) => {
@@ -143,6 +153,8 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
         ...(previousMidi === undefined ? {} : { previousMidi })
       });
       setQuestion(nextQuestion);
+      setQuestionHints(hints);
+      setQuestionAutoAdvance(autoAdvance);
       setKeyboardRange(keyboardRangeForNotes(notePool));
       setConfigNotice("");
       setSettingsPending(false);
@@ -154,7 +166,10 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     } catch (error) {
       setConfigNotice(error instanceof Error ? error.message : "Эта комбинация сложности недоступна");
     }
-  }, [clearFeedbackTimers, difficulty, enabledDirections, selectedClefs]);
+  }, [autoAdvance, clearFeedbackTimers, difficulty, enabledDirections, hints, selectedClefs]);
+
+  const makeNextQuestionRef = useRef(makeNextQuestion);
+  useEffect(() => { makeNextQuestionRef.current = makeNextQuestion; }, [makeNextQuestion]);
 
   useEffect(() => {
     setStats(stored.stats);
@@ -172,7 +187,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
       setStorageWarning("Не удалось сохранить настройки локально. Текущая сессия продолжит работать.");
     }
   }, [autoAdvance, customDifficulty, difficulty, hints, level, playbackMode, profile.id, selectedClefs, sources, targets]);
-  useEffect(() => () => clearFeedbackTimers(), [clearFeedbackTimers]);
+  useEffect(() => () => { clearFeedbackTimers(); disposeAudio(); }, [clearFeedbackTimers]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const handleVisibility = () => {
@@ -203,9 +218,12 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     let nextStats = recordSessionAttempt(stats, question.direction, correct, responseTimeMs);
     setInputNotice(""); setStats(nextStats);
     clearFeedbackTimers();
-    playSequence(answer);
+    const feedbackGapMs = correct && questionAutoAdvance
+      ? Math.min(520, Math.floor(900 / answer.length))
+      : 520;
+    playSequenceNow(answer, feedbackGapMs);
     if (!correct) feedbackTimersRef.current.push(window.setTimeout(
-      () => playSequence(question.sequence.map((note) => note.midi)),
+      () => playSequenceNow(question.sequence.map((note) => note.midi)),
       answer.length * 520 + 220
     ));
     try {
@@ -222,10 +240,13 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     } catch {
       setStorageWarning("Ответ учтён в текущей сессии, но не сохранился в localStorage.");
     }
-    if (correct && autoAdvance) {
-      feedbackTimersRef.current.push(window.setTimeout(() => makeNextQuestion(nextStats, question.note.midi), 1000));
-    }
-  }, [answeredMidis, autoAdvance, clearFeedbackTimers, makeNextQuestion, profile.id, progressReady, promptPresented, question, stats]);
+    const autoTimer = scheduleCorrectAutoAdvance(
+      questionAutoAdvance,
+      correct,
+      () => makeNextQuestionRef.current(nextStats, question.note.midi)
+    );
+    if (autoTimer !== null) feedbackTimersRef.current.push(autoTimer);
+  }, [answeredMidis, clearFeedbackTimers, playSequenceNow, profile.id, progressReady, promptPresented, question, questionAutoAdvance, stats]);
 
   const commitKeyboard = useCallback((midi: number, inputMethod: InputMethod) => {
     if (keyboardCorrectionPending) {
@@ -252,8 +273,8 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const auditionSoundCandidate = useCallback((index: number) => {
     if (answeredMidis !== null) return;
     setActiveSoundOption(index); setInputNotice("");
-    playSequence(question.optionSequences[index]?.map((note) => note.midi) ?? []);
-  }, [answeredMidis, question.optionSequences]);
+    playSequenceNow(question.optionSequences[index]?.map((note) => note.midi) ?? []);
+  }, [answeredMidis, playSequenceNow, question.optionSequences]);
   const confirmSoundCandidate = useCallback((method: InputMethod) => {
     if (activeSoundOption === null) { setInputNotice("Сначала прослушайте один из вариантов."); return; }
     const option = question.optionSequences[activeSoundOption];
@@ -271,6 +292,9 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   }, [answeredMidis, commitKeyboard, keyboardCorrectionPending, promptPresented, question.direction.target]);
   const midi = useMidi(handleMidiNote);
   useEffect(() => configurePlayback(playbackMode, midi.selectedOutput), [midi.selectedOutput, playbackMode]);
+  useEffect(() => {
+    if (playbackMode === "midi" && midi.selectedOutput === null) setPlaybackMode("webaudio");
+  }, [midi.selectedOutput, playbackMode]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -310,6 +334,8 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   }
   function setPreset(next: DifficultyLevel) { setLevel(next); setCustomDifficulty(false); setDifficulty(difficultyPreset(next).settings); setSettingsPending(true); }
   function setCustom(next: DifficultySettings) { setCustomDifficulty(true); setDifficulty(next); setSettingsPending(true); }
+  function setHint(name: keyof HintSettings, enabled: boolean) { setHints((current) => ({ ...current, [name]: enabled })); setSettingsPending(true); }
+  function setAutoAdvanceForNextQuestion(enabled: boolean) { setAutoAdvance(enabled); setSettingsPending(true); }
 
   if (!progressReady) return <main className="auth-shell"><p>Загружаем прогресс…</p></main>;
 
@@ -319,6 +345,9 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
       : <>{midi.errorMessage && <span className="midi-error" role="status">{midi.errorMessage}</span>}<button type="button" onClick={() => void midi.connect()} disabled={midi.status === "unsupported" || midi.status === "connecting"}>
         {midi.status === "unsupported" ? "Не поддерживается" : midi.status === "connecting" ? "Подключение…" : midi.status === "denied" || midi.status === "error" ? "Повторить подключение" : "Подключить"}
       </button></>}
+    {midi.inputs.length > 1 && <select aria-label="MIDI-устройство ввода" value={midi.selectedInputId ?? ""} onChange={(event) => midi.selectInput(event.target.value || null)}>
+      {midi.inputs.map((input) => <option value={input.id} key={input.id}>{input.name ?? `MIDI ${input.id}`}</option>)}
+    </select>}
     <span>Воспроизведение</span>
     <div className="playback-toggle" role="group" aria-label="Способ воспроизведения звука">
       <button type="button" aria-pressed={playbackMode === "webaudio"} onClick={() => setPlaybackMode("webaudio")}>Web Audio</button>
@@ -340,38 +369,39 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
       <PracticeSettings level={level} customDifficulty={customDifficulty} difficulty={difficulty} sources={sources} targets={targets} clefs={selectedClefs} hints={hints} autoAdvance={autoAdvance} pendingNextQuestion={settingsPending}
         directionCount={enabledDirections.length} midiControl={midiControl} onLevelChange={setPreset} onDifficultyChange={setCustom}
         onToggleSource={toggleSource} onToggleTarget={toggleTarget} onToggleClef={toggleClef}
-        onHintChange={(name, enabled) => setHints((current) => ({ ...current, [name]: enabled }))} onAutoAdvanceChange={setAutoAdvance} />
+        onHintChange={setHint} onAutoAdvanceChange={setAutoAdvanceForNextQuestion} />
 
       <div className="practice-column">
         {configNotice && <p className="config-notice" role="status">{configNotice}</p>}
-        {hints.clefGuide && <ClefGuide clefs={selectedClefs} />}
+        {questionHints.clefGuide && <ClefGuide clefs={[question.clef]} />}
         <section className="exercise-card">
           <div className="exercise-heading"><span className="direction-badge">{formatDirection(question.direction)}</span><span>{question.direction.target === "keyboard" ? "Нажмите любую клавишу" : question.direction.target === "sound" ? "Сравните и подтвердите звук" : "Выберите правильный вариант"}</span></div>
           <div className={`exercise-body target-${question.direction.target}`}>
             <div className="prompt-card"><p>Дано</p><div className="notation-context"><span>{formatKeySignature(question.keyFifths)}</span>{question.writtenAccidentals.some((value) => value !== null) && <span>Случайный знак в примере</span>}</div><RepresentationView representation={question.direction.source} note={question.sequence} clef={question.clef} nameSystem="all"
               keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals}
-              keyboardRange={keyboardRange} showKeyboardNoteLabels={hints.keyboardNoteLabels} showKeyboardOctaveLabels={hints.keyboardOctaveLabels} onPresented={markPromptPresented} />
+              keyboardRange={keyboardRange} showKeyboardNoteLabels={questionHints.keyboardNoteLabels} showKeyboardOctaveLabels={questionHints.keyboardOctaveLabels}
+              onPlaySequence={playSequenceNow} onPresented={markPromptPresented} />
               {!promptPresented && question.direction.source === "sound" && <span className="activation-hint">Прослушайте звук, чтобы начать отсчёт.</span>}</div>
             <div className="answer-column">{question.direction.target === "keyboard"
-              ? <KeyboardAnswer question={question} range={keyboardRange} answeredMidis={answeredMidis} keyboardInput={keyboardInput} correctionPending={keyboardCorrectionPending} promptPresented={promptPresented} hints={hints} onCommit={(midiValue) => commitKeyboard(midiValue, "pointer")} />
+              ? <KeyboardAnswer question={question} range={keyboardRange} answeredMidis={answeredMidis} keyboardInput={keyboardInput} correctionPending={keyboardCorrectionPending} promptPresented={promptPresented} hints={questionHints} onCommit={(midiValue) => commitKeyboard(midiValue, "pointer")} />
               : question.direction.target === "sound"
                 ? <SoundAnswer question={question} answeredMidis={answeredMidis} activeOption={activeSoundOption} promptPresented={promptPresented} onAudition={auditionSoundCandidate} onConfirm={() => confirmSoundCandidate("pointer")} />
-                : <OptionAnswer question={question} answeredMidis={answeredMidis} promptPresented={promptPresented} range={keyboardRange} hints={hints} onSubmit={(midis) => submitAnswer(midis, "pointer")} />}
+                : <OptionAnswer question={question} answeredMidis={answeredMidis} promptPresented={promptPresented} range={keyboardRange} hints={questionHints} onSubmit={(midis) => submitAnswer(midis, "pointer")} />}
               {inputNotice && <span className="input-notice" role="status">{inputNotice}</span>}
             </div>
           </div>
 
           {lastCorrect !== null && <div className={`feedback ${lastCorrect ? "is-correct" : "is-wrong"}`} role="status"><div><strong>{lastCorrect ? "Верно" : "Пока нет"}</strong>
-            <span>{lastCorrect ? `Правильно: ${formattedNoteSequence(question.sequence)}.` : `Вы сыграли ${scientificMidiSequence(answeredMidis!)}. Сначала прозвучал ваш ответ, затем правильная последовательность — ${formattedNoteSequence(question.sequence)}.`}</span></div>
-            <div className="feedback-actions">{!lastCorrect && <button type="button" onClick={() => playSequence(answeredMidis!)}>Ваш ответ</button>}<button type="button" onClick={() => playSequence(question.sequence.map((note) => note.midi))}>Правильно</button>
-              {keyboardCorrectionPending ? <span className="correction-hint">Следующий вопрос откроется после правильного нажатия.</span> : <button type="button" className="next-button" onClick={() => makeNextQuestion(stats, question.note.midi)}>{lastCorrect && autoAdvance ? "Следующая сейчас · авто 1 с" : "Следующая связь"}</button>}</div>
+            <span>{lastCorrect ? `Правильно: ${formattedNoteSequence(question.sequence)}.` : `Ваш ответ: ${scientificMidiSequence(answeredMidis!)}. Сначала прозвучал ваш вариант, затем правильная последовательность — ${formattedNoteSequence(question.sequence)}.`}</span></div>
+            <div className="feedback-actions">{!lastCorrect && <button type="button" onClick={() => playSequenceNow(answeredMidis!)}>Ваш ответ</button>}<button type="button" onClick={() => playSequenceNow(question.sequence.map((note) => note.midi))}>Правильно</button>
+              {keyboardCorrectionPending ? <span className="correction-hint">Следующий вопрос откроется после правильного нажатия.</span> : <button type="button" className="next-button" onClick={() => makeNextQuestion(stats, question.note.midi)}>{lastCorrect && questionAutoAdvance ? "Следующая сейчас · авто 1 с" : "Следующая связь"}</button>}</div>
           </div>}
 
           {lastCorrect !== null && !keyboardCorrectionPending && <div className="answer-map">
             <div><span>Запись</span><NotationCard note={question.sequence} clef={question.clef} keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals} /></div>
             <div><span>Название</span><RepresentationView representation="name" note={question.sequence} clef={question.clef} nameSystem="all" keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals} /></div>
-            <div><span>Клавиатура</span><PianoKeyboard mode="review" correctMidis={question.sequence.map((note) => note.midi)} range={keyboardRange} compact showNoteLabels={hints.keyboardNoteLabels} showOctaveLabels={hints.keyboardOctaveLabels} /></div>
-            <div><span>Звучание</span><button type="button" onClick={() => playSequence(question.sequence.map((note) => note.midi))}>Прослушать</button></div>
+            <div><span>Клавиатура</span><PianoKeyboard mode="review" correctMidis={question.sequence.map((note) => note.midi)} range={keyboardRange} compact showNoteLabels={questionHints.keyboardNoteLabels} showOctaveLabels={questionHints.keyboardOctaveLabels} /></div>
+            <div><span>Звучание</span><button type="button" onClick={() => playSequenceNow(question.sequence.map((note) => note.midi))}>Прослушать</button></div>
           </div>}
           {storageWarning && <p className="sync-warning" role="status">{storageWarning}</p>}
         </section>
@@ -390,6 +420,7 @@ function KeyboardAnswer({ question, range, answeredMidis, keyboardInput, correct
   const count = question.sequence.length;
   return <div className="keyboard-answer-surface"><div className="keyboard-answer-copy"><strong>{correctionPending ? "Сыграйте правильную последовательность" : count === 1 ? "Вся клавиатура активна" : `Сыграйте ${count} нот по порядку`}</strong><span>{correctionPending ? `Коррекция не считается новой попыткой · ${keyboardInput.length}/${count}` : `Мышь, касание или MIDI · ${keyboardInput.length}/${count}`}</span></div>
     <PianoKeyboard mode="answer" range={range} selectedMidis={answeredMidis ?? keyboardInput} correctMidis={answeredMidis === null ? null : question.sequence.map((note) => note.midi)} correctionOnly={correctionPending}
+      focusMidi={correctionPending ? question.sequence[keyboardInput.length]?.midi : undefined}
       disabled={!promptPresented || (answeredMidis !== null && !correctionPending)} showNoteLabels={hints.keyboardNoteLabels} showOctaveLabels={hints.keyboardOctaveLabels} onCommit={onCommit} />
   </div>;
 }
@@ -414,10 +445,12 @@ function OptionAnswer({ question, answeredMidis, promptPresented, range, hints, 
 }
 
 function ProfileScreen({ onSelected }: { onSelected: (profile: LocalProfile) => void }) {
-  const [profiles, setProfiles] = useState<LocalProfileSummary[]>(() => {
-    try { return listProfiles(); } catch { return []; }
+  const [initialProfiles] = useState(() => {
+    try { return { profiles: listProfiles(), error: "" }; }
+    catch { return { profiles: [] as LocalProfileSummary[], error: "Локальное хранилище недоступно. Разрешите сайту сохранять данные в браузере." }; }
   });
-  const [name, setName] = useState(""); const [error, setError] = useState("");
+  const [profiles, setProfiles] = useState<LocalProfileSummary[]>(initialProfiles.profiles);
+  const [name, setName] = useState(""); const [error, setError] = useState(initialProfiles.error);
   function chooseProfile(profile: LocalProfile) {
     setError("");
     try { onSelected(selectProfile(profile.id)); }
