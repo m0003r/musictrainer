@@ -1,4 +1,4 @@
-import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createNaturalRange } from "@music-trainer/core";
 
 export interface MidiRange {
@@ -56,6 +56,10 @@ function isBlackKey(midi: number): boolean {
   return BLACK_PITCH_CLASSES.has(((midi % 12) + 12) % 12);
 }
 
+export function orderedSequenceIndices(midis: readonly number[], midi: number): number[] {
+  return midis.flatMap((value, index) => value === midi ? [index + 1] : []);
+}
+
 export function PianoKeyboard(props: PianoKeyboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const whiteNotes = useMemo(
@@ -69,6 +73,55 @@ export function PianoKeyboard(props: PianoKeyboardProps) {
     ).filter(isBlackKey),
     [props.range.maxMidi, props.range.minMidi]
   );
+  const scrollTargetMidis = props.mode === "source"
+    ? props.noteMidis
+    : props.mode === "review"
+      ? props.correctMidis
+      : props.correctMidis ?? [];
+  const scrollTargetKey = scrollTargetMidis.join(",");
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || scrollTargetMidis.length === 0) return;
+
+    let frame = 0;
+    const revealTargets = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (viewport.scrollWidth <= viewport.clientWidth) {
+          viewport.scrollLeft = 0;
+          return;
+        }
+        const targetElements = [...new Set(scrollTargetMidis)].map((midi) =>
+          viewport.querySelector<HTMLElement>(`.piano-key[data-midi="${midi}"]`)
+        ).filter((element): element is HTMLElement => element !== null);
+        if (targetElements.length === 0) return;
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const targetRects = targetElements.map((element) => element.getBoundingClientRect());
+        const targetLeft = viewport.scrollLeft + Math.min(...targetRects.map((rect) => rect.left - viewportRect.left));
+        const targetRight = viewport.scrollLeft + Math.max(...targetRects.map((rect) => rect.right - viewportRect.left));
+        const padding = 16;
+        const targetWidth = targetRight - targetLeft;
+        const nextLeft = targetWidth + padding * 2 <= viewport.clientWidth
+          ? targetLeft - (viewport.clientWidth - targetWidth) / 2
+          : targetLeft - padding;
+        viewport.scrollLeft = Math.max(0, Math.min(nextLeft, viewport.scrollWidth - viewport.clientWidth));
+      });
+    };
+
+    revealTargets();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(revealTargets);
+    observer?.observe(viewport);
+    if (viewport.firstElementChild) observer?.observe(viewport.firstElementChild);
+    window.addEventListener("resize", revealTargets);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", revealTargets);
+    };
+  }, [scrollTargetKey, whiteNotes.length]);
+
   function classesFor(midi: number): string {
     const classes = ["piano-key"];
     if (props.mode === "source" && props.noteMidis.includes(midi)) classes.push("is-active");
@@ -92,13 +145,15 @@ export function PianoKeyboard(props: PianoKeyboardProps) {
   function keyContents(midi: number): ReactNode {
     const pitchClass = ((midi % 12) + 12) % 12;
     const octave = Math.floor(midi / 12) - 1;
-    const sourceMidis = props.mode === "source" ? props.noteMidis : [];
-    const sequenceIndex = sourceMidis.indexOf(midi);
+    const sequenceMidis = props.mode === "source" ? props.noteMidis : props.mode === "review" ? props.correctMidis : [];
+    const sequenceIndices = orderedSequenceIndices(sequenceMidis, midi);
     return (
       <>
         {props.showNoteLabels && <span className="key-note-label">{KEY_LABELS[pitchClass]}</span>}
         {props.showOctaveLabels && pitchClass === 0 && <span className="key-octave-label">{OCTAVE_LABELS[octave] ?? `${octave} октава`}</span>}
-        {sequenceIndex >= 0 && sourceMidis.length > 1 && <span className="key-sequence-label">{sequenceIndex + 1}</span>}
+        {sequenceMidis.length > 1 && sequenceIndices.length > 0 && <span className="key-sequence-labels">
+          {sequenceIndices.map((index) => <span className="key-sequence-label" key={index}>{index}</span>)}
+        </span>}
       </>
     );
   }
@@ -111,6 +166,7 @@ export function PianoKeyboard(props: PianoKeyboardProps) {
         <button
           type="button"
           className={className}
+          data-midi={midi}
           disabled={props.disabled}
           onClick={() => props.onCommit(midi)}
           aria-label={`${KEY_LABELS[((midi % 12) + 12) % 12]}, MIDI ${midi}`}
@@ -119,7 +175,7 @@ export function PianoKeyboard(props: PianoKeyboardProps) {
         </button>
       );
     }
-    return <span className={className} aria-hidden="true">{keyContents(midi)}</span>;
+    return <span className={className} data-midi={midi} aria-hidden="true">{keyContents(midi)}</span>;
   }
 
   const ariaLabel = props.mode === "source"

@@ -282,6 +282,7 @@ select, .controls button, .feedback button, .option-card > button, .answer-map b
 
 .piano-viewport {
   width: min(100%, 900px);
+  max-width: 100%;
   margin: 10px auto;
   overflow-x: auto;
   overflow-y: hidden;
@@ -293,8 +294,8 @@ select, .controls button, .feedback button, .option-card > button, .answer-map b
 
 .piano {
   position: relative;
-  width: max(100%, calc(var(--white-key-count) * 38px));
-  height: 152px;
+  width: max(100%, calc(var(--white-key-count) * 44px));
+  height: 176px;
 }
 
 .white-keys { display: flex; width: 100%; height: 100%; }
@@ -312,6 +313,7 @@ select, .controls button, .feedback button, .option-card > button, .answer-map b
   border-radius: 0 0 5px 5px;
   color: #4f493f;
   background: #fff;
+  touch-action: manipulation;
 }
 
 .black-key-slot {
@@ -335,6 +337,7 @@ select, .controls button, .feedback button, .option-card > button, .answer-map b
   border-radius: 0 0 5px 5px;
   color: #f8f3e9;
   background: linear-gradient(90deg, #1d1e1d, #373936 68%, #1d1e1d);
+  touch-action: manipulation;
 }
 
 .piano-key.is-active { background: linear-gradient(#df8755, #f2a46f); box-shadow: inset 0 -10px 18px rgba(111, 48, 18, 0.22); }
@@ -352,10 +355,8 @@ select, .controls button, .feedback button, .option-card > button, .answer-map b
 .key-shortcut { margin-bottom: 9px; font-size: 0.74rem; font-weight: 850; }
 .black-key .key-shortcut { margin-bottom: 5px; }
 
-.piano-viewport.is-source .piano,
-.piano-viewport.is-review .piano { width: 100%; }
 .piano-viewport.is-compact { width: min(100%, 330px); margin: 5px auto; }
-.piano-viewport.is-compact .piano { height: 66px; }
+.piano-viewport.is-compact .piano { width: max(100%, calc(var(--white-key-count) * 24px)); height: 72px; }
 
 .keyboard-answer-surface {
   display: grid;
@@ -660,6 +661,12 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 .key-note-label, .key-octave-label { position: relative; z-index: 1; display: block; max-width: 100%; overflow: hidden; padding: 2px; font-size: clamp(0.47rem, 0.7vw, 0.65rem); font-weight: 800; line-height: 1.05; text-overflow: clip; }
 .key-octave-label { margin-bottom: 5px; color: #7b6c5a; font-size: clamp(0.42rem, 0.58vw, 0.55rem); writing-mode: vertical-rl; }
 .black-key .key-note-label { margin-bottom: 5px; color: #fff; font-size: clamp(0.38rem, 0.54vw, 0.5rem); writing-mode: vertical-rl; }
+.key-sequence-labels { position: absolute; z-index: 3; top: 8px; left: 50%; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; width: calc(100% - 6px); transform: translateX(-50%); pointer-events: none; }
+.key-sequence-label { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border: 1px solid rgba(82, 50, 27, 0.24); border-radius: 999px; color: #51321f; background: rgba(255, 247, 235, 0.94); box-shadow: 0 2px 5px rgba(62, 36, 17, 0.18); font-size: 0.7rem; font-weight: 900; line-height: 1; }
+.black-key .key-sequence-labels { top: 5px; }
+.black-key .key-sequence-label { min-width: 20px; height: 20px; padding-inline: 4px; border-color: rgba(255, 255, 255, 0.34); color: #fff; background: rgba(92, 47, 25, 0.9); font-size: 0.64rem; }
+.piano-viewport.is-compact .key-sequence-labels { top: 4px; gap: 2px; }
+.piano-viewport.is-compact .key-sequence-label { min-width: 17px; height: 17px; padding-inline: 3px; font-size: 0.58rem; }
 
 .clef-guide {
   display: grid;
@@ -680,16 +687,16 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 .clef-symbol { font-size: 2.15rem; }
 
 @media (max-width: 1120px) {
-  .trainer-workspace { grid-template-columns: minmax(250px, 285px) minmax(0, 1fr); }
+  .trainer-shell { width: min(100% - 24px, 1540px); padding-top: 16px; }
+  .compact-hero { margin-bottom: 12px; }
+  .trainer-workspace { grid-template-columns: minmax(230px, 250px) minmax(0, 1fr); gap: 12px; }
   .exercise-body { grid-template-columns: 1fr; }
   .prompt-card { min-height: 220px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
+  .target-keyboard .prompt-card { min-height: 160px; padding-block: 14px; }
+  .keyboard-answer-surface { gap: 10px; padding: 14px 16px 16px; }
+  .piano { height: 168px; }
   .options-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .answer-map { grid-template-columns: 1fr 1fr; }
-}
-
-@media (min-width: 761px) {
-  .piano-viewport { overflow-x: hidden; }
-  .piano { width: 100%; }
 }
 
 @media (max-width: 760px) {
@@ -708,6 +715,7 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
   .feedback { align-items: stretch; flex-direction: column; }
   .feedback-actions { justify-content: start; flex-wrap: wrap; }
   .answer-map, .progress-grid { grid-template-columns: 1fr 1fr; }
+  .piano { height: 156px; }
 }
 
 @media (max-width: 430px) {
@@ -724,4 +732,5 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
   .feedback { margin-inline: 10px; }
   .feedback-actions { display: grid !important; grid-auto-flow: row; justify-content: stretch; }
   .feedback-actions button { width: 100%; }
+  .piano { height: 148px; }
 }
