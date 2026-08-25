@@ -56,6 +56,44 @@ describe("audio playback routing", () => {
     expect(output.send).toHaveBeenCalledTimes(1);
   });
 
+  it("sends an immediate best-effort note-off when disposed during a MIDI note", () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    configurePlayback("midi", { send } as unknown as MIDIOutput);
+
+    playNote(67, 5);
+    disposeAudio();
+    vi.advanceTimersByTime(5000);
+
+    expect(send.mock.calls).toEqual([
+      [[0x90, 67, 100]],
+      [[0x80, 67, 0]]
+    ]);
+  });
+
+  it("keeps disposal safe when immediate MIDI note-off is rejected", () => {
+    vi.useFakeTimers();
+    const send = vi.fn()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error("device removed"); });
+    configurePlayback("midi", { send } as unknown as MIDIOutput);
+
+    playNote(69, 5);
+
+    expect(() => disposeAudio()).not.toThrow();
+    vi.advanceTimersByTime(5000);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("still closes an existing Web Audio context on disposal", () => {
+    const context = installAudioContext();
+
+    playNote(60);
+    disposeAudio();
+
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
   it("falls back to Web Audio when MIDI send fails", () => {
     const context = installAudioContext();
     configurePlayback("midi", { send: vi.fn(() => { throw new Error("removed"); }) } as unknown as MIDIOutput);

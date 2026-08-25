@@ -35,16 +35,19 @@ export async function replaceMidiInputBindings(
   onNote: (midi: number) => void,
   isCurrent: () => boolean = () => true
 ): Promise<{ opened: number; error: unknown | null }> {
+  if (!isCurrent()) return { opened: 0, error: null };
   const selected = [...inputs].find((input) => isConnected(input) && input.id === selectedInputId);
 
   for (const [id, input] of boundInputs) {
     if (id !== selected?.id) {
       boundInputs.delete(id);
       await closeMidiInput(input);
+      if (!isCurrent()) return { opened: 0, error: null };
     }
   }
   if (!selected) return { opened: 0, error: null };
   if (boundInputs.has(selected.id)) return { opened: 1, error: null };
+  if (!isCurrent()) return { opened: 0, error: null };
 
   try {
     await openMidiInput(selected, onNote);
@@ -119,14 +122,19 @@ export function useMidi(onNote: (midi: number) => void) {
   const onNoteRef = useRef(onNote);
   onNoteRef.current = onNote;
 
-  const bindInputs = useCallback(async (access: MIDIAccess) => {
-    const generation = ++bindGenerationRef.current;
+  const bindInputs = useCallback(async (access: MIDIAccess, generation: number) => {
+    const isCurrent = () => mountedRef.current
+      && accessRef.current === access
+      && generation === bindGenerationRef.current;
+    if (!isCurrent()) return;
     const availableInputs = [...access.inputs.values()].filter(isConnected);
     const description = describeMidiInputs(availableInputs);
     const inputDescriptions = availableInputs.map(({ id, name, state }) => ({ id, name, state }));
+    const previousSelectedId = selectedInputIdRef.current;
     const selectedId = availableInputs.some(({ id }) => id === selectedInputIdRef.current)
       ? selectedInputIdRef.current
       : availableInputs[0]?.id ?? null;
+    if (selectedId !== previousSelectedId) setLastNote(null);
     selectedInputIdRef.current = selectedId;
     setInputs(inputDescriptions);
     setSelectedInputId(selectedId);
@@ -141,9 +149,9 @@ export function useMidi(onNote: (midi: number) => void) {
         setLastNote(midi);
         onNoteRef.current(midi);
       },
-      () => mountedRef.current && generation === bindGenerationRef.current
+      isCurrent
     );
-    if (!mountedRef.current || generation !== bindGenerationRef.current) return;
+    if (!isCurrent()) return;
 
     const openedOutputs: MidiOutputDescription[] = [];
     const availableOutputs = [...access.outputs.values()].filter(isConnected);
@@ -152,13 +160,15 @@ export function useMidi(onNote: (midi: number) => void) {
       if (!availableOutputIds.has(id)) {
         outputsRef.current.delete(id);
         try { await output.close(); } catch { /* Device removal makes close best-effort. */ }
+        if (!isCurrent()) return;
       }
     }
     let outputError: unknown | null = null;
     for (const output of availableOutputs) {
+      if (!isCurrent()) return;
       try {
         if (!outputsRef.current.has(output.id)) await output.open();
-        if (!mountedRef.current || generation !== bindGenerationRef.current || !isConnected(output)) {
+        if (!isCurrent() || !isConnected(output)) {
           try { await output.close(); } catch { /* Best-effort stale-port cleanup. */ }
           continue;
         }
@@ -168,7 +178,7 @@ export function useMidi(onNote: (midi: number) => void) {
         outputError ??= error;
       }
     }
-    if (!mountedRef.current || generation !== bindGenerationRef.current) return;
+    if (!isCurrent()) return;
     setOutputs(openedOutputs);
     setSelectedOutputId((current) => openedOutputs.some(({ id }) => id === current) ? current : openedOutputs[0]?.id ?? null);
     const openError = binding.error ?? outputError;
@@ -184,7 +194,11 @@ export function useMidi(onNote: (midi: number) => void) {
   }, []);
 
   const queueBind = useCallback((access: MIDIAccess) => {
-    bindQueueRef.current = bindQueueRef.current.catch(() => undefined).then(() => bindInputs(access));
+    const generation = ++bindGenerationRef.current;
+    bindQueueRef.current = bindQueueRef.current.catch(() => undefined).then(() => {
+      if (!mountedRef.current || accessRef.current !== access || generation !== bindGenerationRef.current) return;
+      return bindInputs(access, generation);
+    });
     return bindQueueRef.current;
   }, [bindInputs]);
 
@@ -213,9 +227,15 @@ export function useMidi(onNote: (midi: number) => void) {
   }, [queueBind]);
 
   const selectInput = useCallback((id: string | null) => {
-    selectedInputIdRef.current = id;
-    setSelectedInputId(id);
-    if (accessRef.current) void queueBind(accessRef.current);
+    const access = accessRef.current;
+    const availableInputs = access ? [...access.inputs.values()].filter(isConnected) : [];
+    const selectedId = access
+      ? availableInputs.some((input) => input.id === id) ? id : availableInputs[0]?.id ?? null
+      : id;
+    if (selectedInputIdRef.current !== selectedId) setLastNote(null);
+    selectedInputIdRef.current = selectedId;
+    setSelectedInputId(selectedId);
+    if (access) void queueBind(access);
   }, [queueBind]);
 
   useEffect(() => {

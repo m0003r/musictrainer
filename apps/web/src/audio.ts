@@ -5,7 +5,12 @@ export type PlaybackMode = "webaudio" | "midi";
 
 let playbackMode: PlaybackMode = "webaudio";
 let midiOutput: MIDIOutput | null = null;
-const pendingMidiNoteOffs = new Set<ReturnType<typeof globalThis.setTimeout>>();
+interface PendingMidiNoteOff {
+  midi: number;
+  output: MIDIOutput;
+}
+
+const pendingMidiNoteOffs = new Map<ReturnType<typeof globalThis.setTimeout>, PendingMidiNoteOff>();
 
 export interface SequencePlayback {
   cancel(): void;
@@ -38,7 +43,7 @@ function tryPlayMidiNote(midi: number, durationSeconds: number): boolean {
       // A hot-unplugged output must not turn a scheduled note-off into an error.
     }
   }, durationSeconds * 1000);
-  pendingMidiNoteOffs.add(timer);
+  pendingMidiNoteOffs.set(timer, { midi, output });
   return true;
 }
 
@@ -102,7 +107,14 @@ export function playSequence(midis: readonly number[], gapMs = 520): SequencePla
 }
 
 export function disposeAudio(): void {
-  for (const timer of pendingMidiNoteOffs) globalThis.clearTimeout(timer);
+  for (const [timer, { midi, output }] of pendingMidiNoteOffs) {
+    globalThis.clearTimeout(timer);
+    try {
+      output.send([0x80, midi, 0]);
+    } catch {
+      // Cleanup remains best-effort when the output disappeared before disposal.
+    }
+  }
   pendingMidiNoteOffs.clear();
   const context = audioContext;
   audioContext = null;
