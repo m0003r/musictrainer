@@ -7,6 +7,7 @@ coverage/
 .npm-cache/
 data/
 .playwright-mcp/
+.worktrees/
 Zadachi_i_uprazhnenia_po_elementarnoy_teorii_muzyki_by_V_Khvostenko.pdf
 musictrainer-auth-desktop.png
 profile-empty-mobile.png
