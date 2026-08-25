@@ -339,12 +339,15 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
 
   if (!progressReady) return <main className="auth-shell"><p>Загружаем прогресс…</p></main>;
 
+  const selectedMidiInput = midi.inputs.find((input) => input.id === midi.selectedInputId);
+  const otherMidiInputCount = Math.max(0, midi.inputs.length - (selectedMidiInput ? 1 : 0));
   const midiControl = <div className="midi-control"><span>MIDI-ввод</span>{midi.status === "connected"
-    ? <span className="midi-status is-connected">{midi.deviceNames.join(", ") || "Подключено"}{midi.lastNote === null ? "" : ` · получено MIDI ${midi.lastNote}`}</span>
+    ? <span className="midi-status is-connected">{selectedMidiInput?.name ?? "Подключено"}{otherMidiInputCount > 0 ? ` · ещё ${otherMidiInputCount}` : ""}{midi.lastNote === null ? "" : ` · получено MIDI ${midi.lastNote}`}</span>
     : midi.status === "no-devices" ? <span className="midi-status">Доступ есть, устройство не найдено</span>
-      : <>{midi.errorMessage && <span className="midi-error" role="status">{midi.errorMessage}</span>}<button type="button" onClick={() => void midi.connect()} disabled={midi.status === "unsupported" || midi.status === "connecting"}>
+      : <button type="button" onClick={() => void midi.connect()} disabled={midi.status === "unsupported" || midi.status === "connecting"}>
         {midi.status === "unsupported" ? "Не поддерживается" : midi.status === "connecting" ? "Подключение…" : midi.status === "denied" || midi.status === "error" ? "Повторить подключение" : "Подключить"}
-      </button></>}
+      </button>}
+    {midi.errorMessage && <span className="midi-error" role="status">{midi.errorMessage}</span>}
     {midi.inputs.length > 1 && <select aria-label="MIDI-устройство ввода" value={midi.selectedInputId ?? ""} onChange={(event) => midi.selectInput(event.target.value || null)}>
       {midi.inputs.map((input) => <option value={input.id} key={input.id}>{input.name ?? `MIDI ${input.id}`}</option>)}
     </select>}

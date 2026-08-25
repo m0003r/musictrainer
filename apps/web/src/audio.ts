@@ -89,12 +89,14 @@ export function playNote(midi: number, durationSeconds = 0.9): void {
 
 /** Plays an ordered pitch sequence with equal spacing; rhythm training is deliberately out of scope. */
 export function playSequence(midis: readonly number[], gapMs = 520): SequencePlayback {
-  const timers: Array<ReturnType<typeof globalThis.setTimeout> | null> = midis.map((midi, index) => globalThis.setTimeout(
+  const durationSeconds = Math.min(0.75, gapMs / 1000);
+  if (midis[0] !== undefined) playNote(midis[0], durationSeconds);
+  const timers: Array<ReturnType<typeof globalThis.setTimeout> | null> = midis.slice(1).map((midi, index) => globalThis.setTimeout(
     () => {
       timers[index] = null;
-      playNote(midi, Math.min(0.75, gapMs / 1000));
+      playNote(midi, durationSeconds);
     },
-    index * gapMs
+    (index + 1) * gapMs
   ));
   return {
     cancel() {

@@ -53,7 +53,7 @@ export function RepresentationView({
     );
   }
   return (
-    <button className="sound-button" type="button" onClick={() => { const midis = notes.map((item) => item.midi); onPresented?.(); onPlaySequence ? onPlaySequence(midis) : playSequence(midis); }}>
+    <button className="sound-button" type="button" onClick={() => { const midis = notes.map((item) => item.midi); onPlaySequence ? onPlaySequence(midis) : playSequence(midis); onPresented?.(); }}>
       <span aria-hidden="true">♪</span>
       Прослушать
     </button>

@@ -600,6 +600,7 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
   gap: 0;
   max-height: calc(100dvh - 76px);
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 .pending-settings { margin: 0; padding: 9px 16px; color: #624817; background: #fff3cf; font-size: 0.72rem; font-weight: 750; }
@@ -736,13 +737,28 @@ footer { padding: 18px 4px 0; color: #777066; font-size: 0.85rem; text-align: ce
 }
 
 @media (min-width: 860px) and (max-width: 1280px) {
+  .trainer-shell { padding-top: 8px; }
+  .compact-hero { align-items: center; margin-bottom: 6px; }
+  .compact-hero .eyebrow, .compact-hero .lead { display: none; }
+  .compact-hero h1 { font-size: 2.1rem; }
+  .compact-hero .hero-side { display: flex; align-items: center; gap: 10px; }
+  .compact-hero .session-score { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 8px 12px; border-radius: 14px; }
+  .compact-hero .session-score strong { font-size: 1.25rem; }
+  .settings-launcher { min-height: 36px; padding-block: 4px; }
+  .exercise-heading { min-height: 44px; padding: 6px 16px; }
   .exercise-body.target-notation { grid-template-columns: minmax(0, 1fr); }
-  .target-notation .prompt-card { min-height: 150px; padding-block: 12px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
+  .target-notation .prompt-card { display: flex; align-items: center; gap: 16px; min-height: 96px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid #e3d9ca; }
+  .target-notation .prompt-card > p { align-self: center; flex: 0 0 auto; }
+  .target-notation .prompt-card .notation-context { align-self: center; flex: 0 0 auto; width: auto; margin: 0; }
+  .target-notation .prompt-card .note-names { flex: 1 1 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: auto; }
+  .target-notation .prompt-card .note-names strong { font-size: 1.1rem; }
   .target-notation .options-grid.options-4,
   .target-notation .options-grid.options-5,
-  .target-notation .options-grid.options-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; }
-  .target-notation .option-card { min-width: 0; min-height: 168px; padding: 12px 9px 9px; }
+  .target-notation .options-grid.options-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 8px; }
+  .target-notation .option-card { min-width: 0; min-height: 190px; padding: 9px; }
   .target-notation .option-card > button { width: 100%; }
+  .piano-viewport:not(.is-compact) { width: min(100%, 1200px); }
+  .piano-viewport:not(.is-compact) .piano { width: 100%; }
 }
 
 @media (max-width: 760px) {

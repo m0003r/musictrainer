@@ -119,7 +119,7 @@ describe("audio playback routing", () => {
     configurePlayback("midi", { send } as unknown as MIDIOutput);
 
     const playback = playSequence([60, 62, 64], 100);
-    vi.advanceTimersByTime(0);
+    expect(send).toHaveBeenCalledWith([0x90, 60, 100]);
     playback.cancel();
     vi.advanceTimersByTime(1000);
 
