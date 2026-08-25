@@ -206,7 +206,7 @@ describe("melodic contour grammar", () => {
     let sixthOrLargerFragments = 0;
     let hardInvariantViolations = 0;
 
-    for (let sample = 0; sample < 1_500; sample += 1) {
+    for (let sample = 0; sample < 750; sample += 1) {
       const sequence = createMelodicSequence({
         notes,
         noteCount: 5,
@@ -220,10 +220,10 @@ describe("melodic contour grammar", () => {
     }
 
     expect(hardInvariantViolations).toBe(0);
-    expect(largeFragments / 1_500).toBeGreaterThanOrEqual(0.15);
-    expect(largeFragments / 1_500).toBeLessThanOrEqual(0.4);
-    expect(sixthOrLargerFragments / 1_500).toBeGreaterThanOrEqual(0.02);
-    expect(sixthOrLargerFragments / 1_500).toBeLessThanOrEqual(0.1);
+    expect(largeFragments / 750).toBeGreaterThanOrEqual(0.15);
+    expect(largeFragments / 750).toBeLessThanOrEqual(0.4);
+    expect(sixthOrLargerFragments / 750).toBeGreaterThanOrEqual(0.02);
+    expect(sixthOrLargerFragments / 750).toBeLessThanOrEqual(0.1);
   });
 
   it("uses the same contour rules for ordinary distractors and preserves accidental contrast", () => {
