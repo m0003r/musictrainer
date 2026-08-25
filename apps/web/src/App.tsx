@@ -13,6 +13,7 @@ import { PracticeSettings, type HintSettings } from "./components/PracticeSettin
 import { RepresentationView } from "./components/RepresentationView.js";
 import { startAnswerFeedback, type AnswerFeedback } from "./feedback.js";
 import { chooseMixedDirection, recordSessionAttempt, type SessionStats } from "./session.js";
+import { soundChoiceKeyboardAction } from "./soundChoice.js";
 import { useMidi } from "./useMidi.js";
 import {
   LocalStoreError, createProfile, getActiveProfile, getProgress, leaveProfile, listProfiles,
@@ -85,7 +86,6 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const [targets, setTargets] = useState<Representation[]>(stored.settings?.targets ?? [...REPRESENTATIONS]);
   const [selectedClefs, setSelectedClefs] = useState<Clef[]>(stored.settings?.selectedClefs ?? ["treble"]);
   const [hints, setHints] = useState<HintSettings>(stored.settings?.hints ?? { keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
-  const [questionHints, setQuestionHints] = useState<HintSettings>(stored.settings?.hints ?? { keyboardNoteLabels: false, keyboardOctaveLabels: true, clefGuide: false });
   const [stats, setStats] = useState<SessionStats>(stored.stats);
   const [question, setQuestion] = useState<Question>(() => createQuestion({
     direction: DIRECTIONS[0]!, clef: "treble", nameSystem: "all",
@@ -155,7 +155,6 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
         ...(previousMidi === undefined ? {} : { previousMidi })
       });
       setQuestion(nextQuestion);
-      setQuestionHints(hints);
       setQuestionAutoAdvance(autoAdvance);
       setKeyboardRange(keyboardRangeForNotes(notePool));
       setConfigNotice("");
@@ -168,7 +167,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     } catch (error) {
       setConfigNotice(error instanceof Error ? error.message : "Эта комбинация сложности недоступна");
     }
-  }, [autoAdvance, cancelAnswerFeedback, difficulty, enabledDirections, hints, selectedClefs]);
+  }, [autoAdvance, cancelAnswerFeedback, difficulty, enabledDirections, selectedClefs]);
 
   const makeNextQuestionRef = useRef(makeNextQuestion);
   useEffect(() => { makeNextQuestionRef.current = makeNextQuestion; }, [makeNextQuestion]);
@@ -299,11 +298,11 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
       if (question.direction.target === "sound") {
-        if (event.key === "Enter" && activeSoundOption !== null) { event.preventDefault(); confirmSoundCandidate("keyboard"); return; }
-        if (!/^[1-6]$/.test(event.key)) return;
-        const index = Number(event.key) - 1;
-        if (!question.optionSequences[index]) return;
-        event.preventDefault(); auditionSoundCandidate(index);
+        const action = soundChoiceKeyboardAction(event.key, question.optionSequences, activeSoundOption);
+        if (action === null) return;
+        event.preventDefault();
+        if (action.kind === "audition") auditionSoundCandidate(action.optionIndex);
+        else confirmSoundCandidate("keyboard");
         return;
       }
       if (question.direction.target === "keyboard" || !/^[1-6]$/.test(event.key)) return;
@@ -331,7 +330,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   }
   function setPreset(next: DifficultyLevel) { setLevel(next); setCustomDifficulty(false); setDifficulty(difficultyPreset(next).settings); setSettingsPending(true); }
   function setCustom(next: DifficultySettings) { setCustomDifficulty(true); setDifficulty(next); setSettingsPending(true); }
-  function setHint(name: keyof HintSettings, enabled: boolean) { setHints((current) => ({ ...current, [name]: enabled })); setSettingsPending(true); }
+  function setHint(name: keyof HintSettings, enabled: boolean) { setHints((current) => ({ ...current, [name]: enabled })); }
   function setAutoAdvanceForNextQuestion(enabled: boolean) { setAutoAdvance(enabled); setSettingsPending(true); }
 
   if (!progressReady) return <main className="auth-shell"><p>Загружаем прогресс…</p></main>;
@@ -373,20 +372,20 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
 
       <div className="practice-column">
         {configNotice && <p className="config-notice" role="status">{configNotice}</p>}
-        {questionHints.clefGuide && <ClefGuide clefs={[question.clef]} />}
+        {hints.clefGuide && <ClefGuide clefs={[question.clef]} />}
         <section className="exercise-card">
           <div className="exercise-heading"><span className="direction-badge">{formatDirection(question.direction)}</span><span>{question.direction.target === "keyboard" ? "Нажмите любую клавишу" : question.direction.target === "sound" ? "Сравните и подтвердите звук" : "Выберите правильный вариант"}</span></div>
           <div className={`exercise-body target-${question.direction.target}`}>
             <div className="prompt-card"><p>Дано</p><div className="notation-context"><span>{formatKeySignature(question.keyFifths)}</span>{question.writtenAccidentals.some((value) => value !== null) && <span>Случайный знак в примере</span>}</div><RepresentationView representation={question.direction.source} note={question.sequence} clef={question.clef} nameSystem="all"
               keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals}
-              keyboardRange={keyboardRange} showKeyboardNoteLabels={questionHints.keyboardNoteLabels} showKeyboardOctaveLabels={questionHints.keyboardOctaveLabels}
+              keyboardRange={keyboardRange} showKeyboardNoteLabels={hints.keyboardNoteLabels} showKeyboardOctaveLabels={hints.keyboardOctaveLabels}
               onPlaySequence={playSequenceNow} onPresented={markPromptPresented} />
               {!promptPresented && question.direction.source === "sound" && <span className="activation-hint">Прослушайте звук, чтобы начать отсчёт.</span>}</div>
             <div className="answer-column">{question.direction.target === "keyboard"
-              ? <KeyboardAnswer question={question} range={keyboardRange} answeredMidis={answeredMidis} keyboardInput={keyboardInput} correctionPending={keyboardCorrectionPending} promptPresented={promptPresented} hints={questionHints} onCommit={(midiValue) => commitKeyboard(midiValue, "pointer")} />
+              ? <KeyboardAnswer question={question} range={keyboardRange} answeredMidis={answeredMidis} keyboardInput={keyboardInput} correctionPending={keyboardCorrectionPending} promptPresented={promptPresented} hints={hints} onCommit={(midiValue) => commitKeyboard(midiValue, "pointer")} />
               : question.direction.target === "sound"
                 ? <SoundAnswer question={question} answeredMidis={answeredMidis} activeOption={activeSoundOption} promptPresented={promptPresented} onAudition={auditionSoundCandidate} onConfirm={() => confirmSoundCandidate("pointer")} />
-                : <OptionAnswer question={question} answeredMidis={answeredMidis} promptPresented={promptPresented} range={keyboardRange} hints={questionHints} onSubmit={(midis) => submitAnswer(midis, "pointer")} />}
+                : <OptionAnswer question={question} answeredMidis={answeredMidis} promptPresented={promptPresented} range={keyboardRange} hints={hints} onSubmit={(midis) => submitAnswer(midis, "pointer")} />}
               {inputNotice && <span className="input-notice" role="status">{inputNotice}</span>}
             </div>
           </div>
@@ -397,10 +396,10 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
               {keyboardCorrectionPending ? <span className="correction-hint">Следующий вопрос откроется после правильного нажатия.</span> : <button type="button" className="next-button" onClick={() => makeNextQuestion(stats, question.note.midi)}>{lastCorrect && questionAutoAdvance ? "Следующая сейчас · авто 1 с" : "Следующая связь"}</button>}</div>
           </div>}
 
-          {lastCorrect !== null && !keyboardCorrectionPending && <div className="answer-map">
+          {lastCorrect !== null && <div className="answer-map">
             <div><span>Запись</span><NotationCard note={question.sequence} clef={question.clef} keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals} /></div>
             <div><span>Название</span><RepresentationView representation="name" note={question.sequence} clef={question.clef} nameSystem="all" keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals} /></div>
-            <div><span>Клавиатура</span><PianoKeyboard mode="review" correctMidis={question.sequence.map((note) => note.midi)} range={keyboardRange} compact showNoteLabels={questionHints.keyboardNoteLabels} showOctaveLabels={questionHints.keyboardOctaveLabels} /></div>
+            <div><span>Клавиатура</span><PianoKeyboard mode="review" correctMidis={question.sequence.map((note) => note.midi)} range={keyboardRange} compact showNoteLabels={hints.keyboardNoteLabels} showOctaveLabels={hints.keyboardOctaveLabels} /></div>
             <div><span>Звучание</span><button type="button" onClick={() => playSequenceNow(question.sequence.map((note) => note.midi))}>Прослушать</button></div>
           </div>}
           {storageWarning && <p className="sync-warning" role="status">{storageWarning}</p>}

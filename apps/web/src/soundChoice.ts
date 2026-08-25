@@ -1,22 +1,20 @@
-import type { Note } from "@music-trainer/core";
-
 export type SoundChoiceKeyboardAction =
-  | { kind: "audition"; midi: number }
-  | { kind: "confirm"; midi: number }
+  | { kind: "audition"; optionIndex: number }
+  | { kind: "confirm"; optionIndex: number }
   | null;
 
 /** Maps keyboard input without allowing a sound answer that was never auditioned. */
 export function soundChoiceKeyboardAction(
   key: string,
-  options: readonly Note[],
-  activeMidi: number | null
+  options: readonly unknown[],
+  activeOption: number | null
 ): SoundChoiceKeyboardAction {
   if (/^[1-6]$/.test(key)) {
-    const option = options[Number(key) - 1];
-    return option ? { kind: "audition", midi: option.midi } : null;
+    const optionIndex = Number(key) - 1;
+    return options[optionIndex] === undefined ? null : { kind: "audition", optionIndex };
   }
-  if (key === "Enter" && activeMidi !== null) {
-    return { kind: "confirm", midi: activeMidi };
+  if (key === "Enter" && activeOption !== null && options[activeOption] !== undefined) {
+    return { kind: "confirm", optionIndex: activeOption };
   }
   return null;
 }
