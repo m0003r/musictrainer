@@ -106,9 +106,12 @@ function startWebAudioNote(context: AudioContext, midi: number, durationSeconds:
   };
 }
 
-function startNote(midi: number, durationSeconds: number): NotePlayback {
+function startNote(midi: number, durationSeconds: number, onStarted?: () => void): NotePlayback {
   const midiPlayback = tryPlayMidiNote(midi, durationSeconds);
-  if (midiPlayback) return midiPlayback;
+  if (midiPlayback) {
+    onStarted?.();
+    return midiPlayback;
+  }
 
   audioContext ??= new AudioContext();
   const context = audioContext;
@@ -118,6 +121,7 @@ function startNote(midi: number, durationSeconds: number): NotePlayback {
     void context.resume().then(() => {
       if (!cancelled && audioContext === context && context.state !== "closed") {
         playback = startWebAudioNote(context, midi, durationSeconds);
+        onStarted?.();
       }
     }).catch(() => undefined);
     return {
@@ -127,7 +131,11 @@ function startNote(midi: number, durationSeconds: number): NotePlayback {
       }
     };
   }
-  if (context.state !== "closed") return startWebAudioNote(context, midi, durationSeconds);
+  if (context.state !== "closed") {
+    const playback = startWebAudioNote(context, midi, durationSeconds);
+    onStarted?.();
+    return playback;
+  }
   return { cancel() {} };
 }
 
@@ -136,14 +144,24 @@ export function playNote(midi: number, durationSeconds = 0.9): void {
 }
 
 /** Plays an ordered pitch sequence with equal spacing; rhythm training is deliberately out of scope. */
-export function playSequence(midis: readonly number[], gapMs = 520): SequencePlayback {
+export function playSequence(
+  midis: readonly number[],
+  gapMs = 520,
+  onFirstNoteStarted?: () => void
+): SequencePlayback {
   const durationSeconds = Math.min(0.75, gapMs / 1000);
   const notes: NotePlayback[] = [];
-  if (midis[0] !== undefined) notes.push(startNote(midis[0], durationSeconds));
+  let firstNoteStarted = false;
+  const notifyFirstNoteStarted = () => {
+    if (firstNoteStarted) return;
+    firstNoteStarted = true;
+    onFirstNoteStarted?.();
+  };
+  if (midis[0] !== undefined) notes.push(startNote(midis[0], durationSeconds, notifyFirstNoteStarted));
   const timers: Array<ReturnType<typeof globalThis.setTimeout> | null> = midis.slice(1).map((midi, index) => globalThis.setTimeout(
     () => {
       timers[index] = null;
-      notes.push(startNote(midi, durationSeconds));
+      notes.push(startNote(midi, durationSeconds, notifyFirstNoteStarted));
     },
     (index + 1) * gapMs
   ));

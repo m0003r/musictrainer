@@ -113,6 +113,90 @@ describe("audio playback routing", () => {
     expect(context.createOscillator).toHaveBeenCalledTimes(2);
   });
 
+  it("reports the first Web Audio onset synchronously for a running context and only once", () => {
+    vi.useFakeTimers();
+    const context = installAudioContext();
+    const onFirstNoteStarted = vi.fn();
+
+    playSequence([60, 62], 100, onFirstNoteStarted);
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(2);
+    expect(onFirstNoteStarted).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(100);
+    expect(context.createOscillator).toHaveBeenCalledTimes(4);
+    expect(onFirstNoteStarted).toHaveBeenCalledOnce();
+  });
+
+  it("waits for a suspended context to resume and start before reporting onset", async () => {
+    const context = installAudioContext("suspended");
+    let resolveResume!: () => void;
+    context.resume.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveResume = () => {
+        context.state = "running";
+        resolve();
+      };
+    }));
+    const onFirstNoteStarted = vi.fn();
+
+    playSequence([60], 100, onFirstNoteStarted);
+    expect(onFirstNoteStarted).not.toHaveBeenCalled();
+    expect(context.createOscillator).not.toHaveBeenCalled();
+
+    resolveResume();
+    await Promise.resolve();
+
+    expect(context.createOscillator).toHaveBeenCalledTimes(2);
+    expect(onFirstNoteStarted).toHaveBeenCalledOnce();
+  });
+
+  it("does not report onset when resuming a suspended context fails", async () => {
+    const context = installAudioContext("suspended");
+    context.resume.mockRejectedValue(new Error("resume rejected"));
+    const onFirstNoteStarted = vi.fn();
+
+    playSequence([60], 100, onFirstNoteStarted);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(context.createOscillator).not.toHaveBeenCalled();
+    expect(onFirstNoteStarted).not.toHaveBeenCalled();
+  });
+
+  it("does not start or report onset when cancelled before a suspended context resumes", async () => {
+    const context = installAudioContext("suspended");
+    let resolveResume!: () => void;
+    context.resume.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveResume = () => {
+        context.state = "running";
+        resolve();
+      };
+    }));
+    const onFirstNoteStarted = vi.fn();
+
+    const playback = playSequence([60], 100, onFirstNoteStarted);
+    playback.cancel();
+    resolveResume();
+    await Promise.resolve();
+
+    expect(context.createOscillator).not.toHaveBeenCalled();
+    expect(onFirstNoteStarted).not.toHaveBeenCalled();
+  });
+
+  it("reports onset after a successful MIDI note-on and only once per sequence", () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const onFirstNoteStarted = vi.fn();
+    configurePlayback("midi", { send } as unknown as MIDIOutput);
+
+    playSequence([60, 62], 100, onFirstNoteStarted);
+
+    expect(send).toHaveBeenCalledWith([0x90, 60, 100]);
+    expect(onFirstNoteStarted).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledWith([0x90, 62, 100]);
+    expect(onFirstNoteStarted).toHaveBeenCalledOnce();
+  });
+
   it("cancels notes in a sequence that have not started", () => {
     vi.useFakeTimers();
     const send = vi.fn();

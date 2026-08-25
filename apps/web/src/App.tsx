@@ -129,9 +129,9 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     activePlaybackRef.current?.cancel();
     activePlaybackRef.current = null;
   }, []);
-  const playSequenceNow = useCallback((midis: readonly number[], gapMs = 520) => {
+  const playSequenceNow = useCallback((midis: readonly number[], gapMs = 520, onFirstNoteStarted?: () => void) => {
     activePlaybackRef.current?.cancel();
-    const playback = playSequence(midis, gapMs);
+    const playback = playSequence(midis, gapMs, onFirstNoteStarted);
     activePlaybackRef.current = playback;
     return playback;
   }, []);
@@ -379,7 +379,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
             <div className="prompt-card"><p>Дано</p><div className="notation-context"><span>{formatKeySignature(question.keyFifths)}</span>{question.writtenAccidentals.some((value) => value !== null) && <span>Случайный знак в примере</span>}</div><RepresentationView representation={question.direction.source} note={question.sequence} clef={question.clef} nameSystem="all"
               keyFifths={question.keyFifths} writtenAccidental={question.writtenAccidentals}
               keyboardRange={keyboardRange} showKeyboardNoteLabels={hints.keyboardNoteLabels} showKeyboardOctaveLabels={hints.keyboardOctaveLabels}
-              onPlaySequence={playSequenceNow} onPresented={markPromptPresented} />
+              onPlaySequence={(midis, onFirstNoteStarted) => playSequenceNow(midis, 520, onFirstNoteStarted)} onPresented={markPromptPresented} />
               {!promptPresented && question.direction.source === "sound" && <span className="activation-hint">Прослушайте звук, чтобы начать отсчёт.</span>}</div>
             <div className="answer-column">{question.direction.target === "keyboard"
               ? <KeyboardAnswer question={question} range={keyboardRange} answeredMidis={answeredMidis} keyboardInput={keyboardInput} correctionPending={keyboardCorrectionPending} promptPresented={promptPresented} hints={hints} onCommit={(midiValue) => commitKeyboard(midiValue, "pointer")} />

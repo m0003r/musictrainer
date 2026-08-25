@@ -15,7 +15,16 @@ interface RepresentationViewProps {
   keyboardRange?: MidiRange;
   keyFifths?: KeyFifths;
   writtenAccidental?: WrittenAccidental | null | readonly (WrittenAccidental | null)[];
-  onPlaySequence?: (midis: readonly number[]) => void;
+  onPlaySequence?: (midis: readonly number[], onFirstNoteStarted?: () => void) => void;
+}
+
+export function playSoundPrompt(
+  midis: readonly number[],
+  onPresented?: () => void,
+  onPlaySequence?: (midis: readonly number[], onFirstNoteStarted?: () => void) => void
+): void {
+  if (onPlaySequence) onPlaySequence(midis, onPresented);
+  else playSequence(midis, 520, onPresented);
 }
 
 export function RepresentationView({
@@ -53,7 +62,7 @@ export function RepresentationView({
     );
   }
   return (
-    <button className="sound-button" type="button" onClick={() => { const midis = notes.map((item) => item.midi); onPlaySequence ? onPlaySequence(midis) : playSequence(midis); onPresented?.(); }}>
+    <button className="sound-button" type="button" onClick={() => playSoundPrompt(notes.map((item) => item.midi), onPresented, onPlaySequence)}>
       <span aria-hidden="true">♪</span>
       Прослушать
     </button>
