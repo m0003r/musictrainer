@@ -11,7 +11,7 @@ import { NotationCard } from "./components/NotationCard.js";
 import { PianoKeyboard } from "./components/PianoKeyboard.js";
 import { PracticeSettings, type HintSettings } from "./components/PracticeSettings.js";
 import { RepresentationView } from "./components/RepresentationView.js";
-import { scheduleCorrectAutoAdvance } from "./feedback.js";
+import { startAnswerFeedback, type AnswerFeedback } from "./feedback.js";
 import { chooseMixedDirection, recordSessionAttempt, type SessionStats } from "./session.js";
 import { useMidi } from "./useMidi.js";
 import {
@@ -114,8 +114,8 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const [questionAutoAdvance, setQuestionAutoAdvance] = useState(stored.settings?.autoAdvance ?? false);
   const [settingsPending, setSettingsPending] = useState(false);
   const startedAtRef = useRef<number | null>(null);
-  const feedbackTimersRef = useRef<number[]>([]);
   const activePlaybackRef = useRef<SequencePlayback | null>(null);
+  const answerFeedbackRef = useRef<AnswerFeedback | null>(null);
 
   const enabledDirections = useMemo(() => directionsForSelections(sources, targets), [sources, targets]);
   const totalAttempts = Object.values(stats).reduce((sum, value) => sum + value.attempts, 0);
@@ -123,19 +123,21 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
   const keyboardCorrectionPending = answeredMidis !== null && lastCorrect === false
     && question.direction.target === "keyboard" && !correctionComplete;
 
-  const clearFeedbackTimers = useCallback(() => {
-    for (const timer of feedbackTimersRef.current) window.clearTimeout(timer);
-    feedbackTimersRef.current = [];
+  const cancelAnswerFeedback = useCallback(() => {
+    answerFeedbackRef.current?.cancel();
+    answerFeedbackRef.current = null;
     activePlaybackRef.current?.cancel();
     activePlaybackRef.current = null;
   }, []);
   const playSequenceNow = useCallback((midis: readonly number[], gapMs = 520) => {
     activePlaybackRef.current?.cancel();
-    activePlaybackRef.current = playSequence(midis, gapMs);
+    const playback = playSequence(midis, gapMs);
+    activePlaybackRef.current = playback;
+    return playback;
   }, []);
 
   const makeNextQuestion = useCallback((nextStats: SessionStats, previousMidi?: number) => {
-    clearFeedbackTimers();
+    cancelAnswerFeedback();
     if (enabledDirections.length === 0 || selectedClefs.length === 0) return;
     const direction = chooseMixedDirection(nextStats, Math.random, enabledDirections);
     const clef = selectedClefs[Math.floor(Math.random() * selectedClefs.length)] ?? selectedClefs[0]!;
@@ -166,7 +168,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     } catch (error) {
       setConfigNotice(error instanceof Error ? error.message : "Эта комбинация сложности недоступна");
     }
-  }, [autoAdvance, clearFeedbackTimers, difficulty, enabledDirections, hints, selectedClefs]);
+  }, [autoAdvance, cancelAnswerFeedback, difficulty, enabledDirections, hints, selectedClefs]);
 
   const makeNextQuestionRef = useRef(makeNextQuestion);
   useEffect(() => { makeNextQuestionRef.current = makeNextQuestion; }, [makeNextQuestion]);
@@ -187,7 +189,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
       setStorageWarning("Не удалось сохранить настройки локально. Текущая сессия продолжит работать.");
     }
   }, [autoAdvance, customDifficulty, difficulty, hints, level, playbackMode, profile.id, selectedClefs, sources, targets]);
-  useEffect(() => () => { clearFeedbackTimers(); disposeAudio(); }, [clearFeedbackTimers]);
+  useEffect(() => () => { cancelAnswerFeedback(); disposeAudio(); }, [cancelAnswerFeedback]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const handleVisibility = () => {
@@ -217,15 +219,16 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     setCorrectionComplete(correct || question.direction.target !== "keyboard");
     let nextStats = recordSessionAttempt(stats, question.direction, correct, responseTimeMs);
     setInputNotice(""); setStats(nextStats);
-    clearFeedbackTimers();
-    const feedbackGapMs = correct && questionAutoAdvance
-      ? Math.min(520, Math.floor(900 / answer.length))
-      : 520;
-    playSequenceNow(answer, feedbackGapMs);
-    if (!correct) feedbackTimersRef.current.push(window.setTimeout(
-      () => playSequenceNow(question.sequence.map((note) => note.midi)),
-      answer.length * 520 + 220
-    ));
+    cancelAnswerFeedback();
+    answerFeedbackRef.current = startAnswerFeedback({
+      direction: question.direction,
+      correct,
+      answeredMidis: answer,
+      expectedMidis: question.sequence.map((note) => note.midi),
+      autoAdvance: questionAutoAdvance,
+      playSequence: playSequenceNow,
+      onAdvance: () => makeNextQuestionRef.current(nextStats, question.note.midi)
+    });
     try {
       recordAttempt({
         questionId: question.id, source: question.direction.source, target: question.direction.target,
@@ -240,13 +243,7 @@ function Trainer({ profile, onLeaveProfile }: { profile: LocalProfile; onLeavePr
     } catch {
       setStorageWarning("Ответ учтён в текущей сессии, но не сохранился в localStorage.");
     }
-    const autoTimer = scheduleCorrectAutoAdvance(
-      questionAutoAdvance,
-      correct,
-      () => makeNextQuestionRef.current(nextStats, question.note.midi)
-    );
-    if (autoTimer !== null) feedbackTimersRef.current.push(autoTimer);
-  }, [answeredMidis, clearFeedbackTimers, playSequenceNow, profile.id, progressReady, promptPresented, question, questionAutoAdvance, stats]);
+  }, [answeredMidis, cancelAnswerFeedback, playSequenceNow, profile.id, progressReady, promptPresented, question, questionAutoAdvance, stats]);
 
   const commitKeyboard = useCallback((midi: number, inputMethod: InputMethod) => {
     if (keyboardCorrectionPending) {
