@@ -180,7 +180,7 @@ describe("music domain", () => {
   });
 
   it("keeps a contextual same-step accidental distractor when the accidental is not first", () => {
-    const randomValues = [0.5, 0.5, 0.5, 0.99, 0];
+    const randomValues = [0.5, 0.5, 0.99, 0];
     let randomIndex = 0;
     const question = createQuestion({
       direction: { source: "notation", target: "name" },

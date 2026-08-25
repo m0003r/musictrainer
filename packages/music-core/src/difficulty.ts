@@ -32,7 +32,7 @@ export const DIFFICULTY_PRESETS: readonly DifficultyPreset[] = [
   { level: 3, label: "Короткая связь", description: "2 ноты · ±1 добавочная · до 1 знака", settings: { ledgerLines: 1, optionCount: 4, minDiatonicDistance: 2, maxKeySignatureFifths: 1, allowWrittenAccidentals: false, notesPerQuestion: 2, maxMelodicDistance: 3 } },
   { level: 4, label: "Фраза", description: "3 ноты · ±2 добавочные · до 2 знаков", settings: { ledgerLines: 2, optionCount: 4, minDiatonicDistance: 2, maxKeySignatureFifths: 2, allowWrittenAccidentals: false, notesPerQuestion: 3, maxMelodicDistance: 4 } },
   { level: 5, label: "Полный диапазон", description: "4 ноты · ±3 добавочные · случайные знаки", settings: { ledgerLines: 3, optionCount: 4, minDiatonicDistance: 1, maxKeySignatureFifths: 4, allowWrittenAccidentals: true, notesPerQuestion: 4, maxMelodicDistance: 5 } },
-  { level: 6, label: "Точное чтение", description: "5 нот · все ключевые и случайные знаки", settings: { ledgerLines: 3, optionCount: 6, minDiatonicDistance: 1, maxKeySignatureFifths: 7, allowWrittenAccidentals: true, notesPerQuestion: 5, maxMelodicDistance: 8 } }
+  { level: 6, label: "Точное чтение", description: "5 нот · все ключевые и случайные знаки", settings: { ledgerLines: 3, optionCount: 6, minDiatonicDistance: 1, maxKeySignatureFifths: 7, allowWrittenAccidentals: true, notesPerQuestion: 5, maxMelodicDistance: 4 } }
 ] as const;
 
 const STAFF_BOTTOM: Record<Clef, Note> = {

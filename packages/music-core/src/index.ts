@@ -1,5 +1,6 @@
 export * from "./directions.js";
 export * from "./difficulty.js";
+export * from "./melody.js";
 export * from "./musicXml.js";
 export * from "./names.js";
 export * from "./notes.js";

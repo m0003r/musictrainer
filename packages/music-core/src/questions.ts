@@ -1,4 +1,10 @@
 import { DEFAULT_NOTES, diatonicIndex } from "./notes.js";
+import {
+  createMelodicSequence,
+  enumerateMelodicSequences,
+  isValidMelodicSequence,
+  melodicSequenceWeight
+} from "./melody.js";
 import { chooseWrittenAccidental, noteInKeySignature, noteWithWrittenAccidental } from "./signatures.js";
 import type { Clef, Direction, KeyFifths, NameSystem, Note, Question } from "./types.js";
 
@@ -33,6 +39,32 @@ function shuffled<T>(values: T[], rng: () => number): T[] {
     }
   }
   return result;
+}
+
+function weightedSampleWithoutReplacement<T>(
+  values: readonly T[],
+  count: number,
+  weight: (value: T) => number,
+  rng: () => number
+): T[] {
+  const remaining = [...values];
+  const selected: T[] = [];
+  while (selected.length < count && remaining.length > 0) {
+    const weights = remaining.map(weight);
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    const draw = Math.max(0, Math.min(1 - Number.EPSILON, rng())) * totalWeight;
+    let cumulativeWeight = 0;
+    let selectedIndex = remaining.length - 1;
+    for (let index = 0; index < remaining.length; index += 1) {
+      cumulativeWeight += weights[index]!;
+      if (draw < cumulativeWeight) {
+        selectedIndex = index;
+        break;
+      }
+    }
+    selected.push(remaining.splice(selectedIndex, 1)[0]!);
+  }
+  return selected;
 }
 
 export function createQuestion(options: CreateQuestionOptions): Question {
@@ -74,23 +106,17 @@ export function createQuestion(options: CreateQuestionOptions): Question {
   }
   const candidates = viableTargets.filter((note) => note.midi !== options.previousMidi);
   const targetPool = candidates.length > 0 ? candidates : viableTargets;
-  const firstInheritedNote = targetPool[randomIndex(targetPool.length, rng)];
-  if (!firstInheritedNote) {
-    throw new Error("Cannot choose a target note");
-  }
-
-  const inheritedSequence = [firstInheritedNote];
-  while (inheritedSequence.length < notesPerQuestion) {
-    const previous = inheritedSequence[inheritedSequence.length - 1]!;
-    const melodicCandidates = pool.filter((candidate) => (
-      candidate.midi !== previous.midi
-      && Math.abs(diatonicIndex(candidate) - diatonicIndex(previous)) <= maxMelodicDistance
-    ));
-    if (melodicCandidates.length === 0) {
-      throw new Error("The selected range cannot provide a sequence at this distance");
-    }
-    inheritedSequence.push(melodicCandidates[randomIndex(melodicCandidates.length, rng)]!);
-  }
+  const inheritedSequence = notesPerQuestion === 1
+    ? [targetPool[randomIndex(targetPool.length, rng)]!]
+    : createMelodicSequence({
+      notes: pool,
+      noteCount: notesPerQuestion,
+      maxMelodicDistance,
+      ...(options.previousMidi === undefined ? {} : { previousMidi: options.previousMidi }),
+      allowedFirstNotes: viableTargets,
+      rng
+    });
+  if (!inheritedSequence[0]) throw new Error("Cannot choose a target note");
 
   const accidentalIndex = options.allowWrittenAccidentals
     ? randomIndex(inheritedSequence.length, rng)
@@ -123,28 +149,68 @@ export function createQuestion(options: CreateQuestionOptions): Question {
     seen.add(sequenceKey(contextual));
     distractorSequences.push(contextual);
   }
-  const fitsMelodicContext = (candidate: Note, position: number): boolean => {
-    const previous = inheritedSequence[position - 1];
-    const next = inheritedSequence[position + 1];
-    return (previous === undefined
-      || Math.abs(diatonicIndex(candidate) - diatonicIndex(previous)) <= maxMelodicDistance)
-      && (next === undefined
-        || Math.abs(diatonicIndex(candidate) - diatonicIndex(next)) <= maxMelodicDistance);
+  const uniqueUnseenSequences = (candidates: readonly Note[][]): Note[][] => {
+    const candidateKeys = new Set(seen);
+    return candidates.filter((candidate) => {
+      const key = sequenceKey(candidate);
+      if (candidateKeys.has(key)) return false;
+      candidateKeys.add(key);
+      return true;
+    });
   };
   const mutationCandidates = sequence.flatMap((target, position) => (
     eligibleDistractors(inheritedSequence[position]!)
       .filter((candidate) => candidate.midi !== target.midi)
-      .filter((candidate) => fitsMelodicContext(candidate, position))
-      .map((candidate) => ({ position, candidate }))
+      .filter((candidate) => {
+        const mutated = [...inheritedSequence];
+        mutated[position] = candidate;
+        return isValidMelodicSequence(mutated, maxMelodicDistance);
+      })
+      .map((candidate) => {
+        const distractor = [...sequence];
+        distractor[position] = candidate;
+        return distractor;
+      })
   ));
-  for (const mutation of shuffled(mutationCandidates, rng)) {
-    if (distractorSequences.length >= optionCount - 1) break;
-    const distractor = [...sequence];
-    distractor[mutation.position] = mutation.candidate;
+  const mutationDistractors = weightedSampleWithoutReplacement(
+    uniqueUnseenSequences(mutationCandidates),
+    optionCount - 1 - distractorSequences.length,
+    (candidate) => melodicSequenceWeight(candidate, maxMelodicDistance),
+    rng
+  );
+  for (const distractor of mutationDistractors) {
     const key = sequenceKey(distractor);
-    if (seen.has(key)) continue;
     seen.add(key);
     distractorSequences.push(distractor);
+  }
+  if (notesPerQuestion > 1 && distractorSequences.length < optionCount - 1) {
+    const contourDistractors = enumerateMelodicSequences({
+      notes: pool,
+      noteCount: notesPerQuestion,
+      maxMelodicDistance
+    }).flatMap((candidate) => {
+      const changedPositions = candidate.flatMap((note, index) => (
+        note.midi === inheritedSequence[index]?.midi ? [] : [index]
+      ));
+      if (changedPositions.length === 0 || changedPositions.some((position) => (
+        Math.abs(diatonicIndex(candidate[position]!) - diatonicIndex(inheritedSequence[position]!))
+          < minDiatonicDistance
+      ))) return [];
+      return [candidate.map((note, index) => (
+        changedPositions.includes(index) ? note : sequence[index]!
+      ))];
+    });
+    const fallbackDistractors = weightedSampleWithoutReplacement(
+      uniqueUnseenSequences(contourDistractors),
+      optionCount - 1 - distractorSequences.length,
+      (candidate) => melodicSequenceWeight(candidate, maxMelodicDistance),
+      rng
+    );
+    for (const distractor of fallbackDistractors) {
+      const key = sequenceKey(distractor);
+      seen.add(key);
+      distractorSequences.push(distractor);
+    }
   }
   if (distractorSequences.length < optionCount - 1) {
     throw new Error("The selected range cannot provide enough distinct sounding options");
