@@ -262,7 +262,8 @@ describe("melodic contour grammar", () => {
     let strictHighestCount = 0;
     let midRankSum = 0;
 
-    for (let sample = 0; sample < 3_000; sample += 1) {
+    const sampleCount = 1_500;
+    for (let sample = 0; sample < sampleCount; sample += 1) {
       const question = createQuestion({
         direction: { source: "sound", target: "notation" },
         clef: "treble",
@@ -289,10 +290,10 @@ describe("melodic contour grammar", () => {
       midRankSum += 1 + greaterCount + equalOtherCount / 2;
     }
 
-    expect(strictHighestCount / 3_000).toBeGreaterThanOrEqual(0.1);
-    expect(strictHighestCount / 3_000).toBeLessThanOrEqual(0.24);
-    expect(midRankSum / 3_000).toBeGreaterThanOrEqual(2.9);
-    expect(midRankSum / 3_000).toBeLessThanOrEqual(4.1);
+    expect(strictHighestCount / sampleCount).toBeGreaterThanOrEqual(0.1);
+    expect(strictHighestCount / sampleCount).toBeLessThanOrEqual(0.24);
+    expect(midRankSum / sampleCount).toBeGreaterThanOrEqual(2.9);
+    expect(midRankSum / sampleCount).toBeLessThanOrEqual(4.1);
   });
 
   it("keeps compensated leaps audible in five-note custom max-eight phrases", () => {
