@@ -114,7 +114,7 @@ Weighted contour grammar в текущем генераторе — implementati
 - [x] Полный production build проходит без runtime-зависимости от API.
 - [x] Firefox-проверка выполнена на планшетных landscape viewport 1024×768 и 1180×820, большом desktop viewport 1600×900 и узком viewport 320 px.
 - [ ] В Firefox проверены OSMD с семью знаками и пятью нотами, все клавиши, next-example-only settings, неверный→правильный Web Audio и автопереход; составной пункт остаётся открытым только из-за отсутствия проверки статуса с физическим MIDI-устройством.
-- [ ] Физический MIDI IN/MIDI OUT и hot-plug проверены на устройстве. — Не выполнено, требуется `manual hardware`.
-- [ ] Android install/home-screen, standalone/landscape и сохранение локальных профилей origin проверены на устройстве. — Не выполнено, требуется `manual Android device`.
+- [ ] Физический MIDI IN/MIDI OUT и hot-plug проверены на устройстве. — Не выполнено; точный протокол: [manual-device-acceptance.md](manual-device-acceptance.md).
+- [ ] Android install/home-screen, standalone/landscape и сохранение локальных профилей origin проверены на устройстве. — Не выполнено; точный протокол: [manual-device-acceptance.md](manual-device-acceptance.md).
 
 Итог аудита не является blanket `complete`: автоматические проверки и основные планшетные Firefox-сценарии прошли, но перечисленные ручные пробелы остаются открытыми.
