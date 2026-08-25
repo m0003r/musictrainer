@@ -2,10 +2,11 @@ import { DEFAULT_NOTES, diatonicIndex } from "./notes.js";
 import {
   createMelodicSequence,
   enumerateMelodicSequences,
+  hasDistinctAdjacentMidi,
   isValidMelodicSequence,
   melodicSequenceWeight
 } from "./melody.js";
-import { chooseWrittenAccidental, noteInKeySignature, noteWithWrittenAccidental } from "./signatures.js";
+import { noteInKeySignature, noteWithWrittenAccidental } from "./signatures.js";
 import type { Clef, Direction, KeyFifths, NameSystem, Note, Question } from "./types.js";
 
 export interface CreateQuestionOptions {
@@ -114,15 +115,32 @@ export function createQuestion(options: CreateQuestionOptions): Question {
       maxMelodicDistance,
       ...(options.previousMidi === undefined ? {} : { previousMidi: options.previousMidi }),
       allowedFirstNotes: viableTargets,
+      requireDistinctAdjacentMidi: true,
       rng
     });
   if (!inheritedSequence[0]) throw new Error("Cannot choose a target note");
 
-  const accidentalIndex = options.allowWrittenAccidentals
-    ? randomIndex(inheritedSequence.length, rng)
+  const validAccidentalsAt = (position: number): Array<-1 | 0 | 1> => (
+    ([-1, 0, 1] as const).filter((accidental) => {
+      if (accidental === inheritedSequence[position]!.alter) return false;
+      const candidate = inheritedSequence.map((note, index) => (
+        index === position ? noteWithWrittenAccidental(note, accidental) : note
+      ));
+      return hasDistinctAdjacentMidi(candidate);
+    })
+  );
+  const accidentalPositions = options.allowWrittenAccidentals
+    ? inheritedSequence.flatMap((_, index) => validAccidentalsAt(index).length > 0 ? [index] : [])
+    : [];
+  if (options.allowWrittenAccidentals && accidentalPositions.length === 0) {
+    throw new Error("The selected range cannot provide enough distinct sounding options");
+  }
+  const accidentalIndex = accidentalPositions.length > 0
+    ? accidentalPositions[randomIndex(accidentalPositions.length, rng)]!
     : -1;
+  const validAccidentals = accidentalIndex >= 0 ? validAccidentalsAt(accidentalIndex) : [];
   const designatedAccidental = accidentalIndex >= 0
-    ? chooseWrittenAccidental(inheritedSequence[accidentalIndex]!, keyFifths, rng)
+    ? validAccidentals[randomIndex(validAccidentals.length, rng)]!
     : null;
   const desiredAlters = inheritedSequence.map((inherited, index) => (
     index === accidentalIndex ? designatedAccidental! : inherited.alter
@@ -171,6 +189,7 @@ export function createQuestion(options: CreateQuestionOptions): Question {
         distractor[position] = candidate;
         return distractor;
       })
+      .filter(hasDistinctAdjacentMidi)
   ));
   const mutationDistractors = weightedSampleWithoutReplacement(
     uniqueUnseenSequences(mutationCandidates),
@@ -187,7 +206,8 @@ export function createQuestion(options: CreateQuestionOptions): Question {
     const contourDistractors = enumerateMelodicSequences({
       notes: pool,
       noteCount: notesPerQuestion,
-      maxMelodicDistance
+      maxMelodicDistance,
+      requireDistinctAdjacentMidi: true
     }).flatMap((candidate) => {
       const changedPositions = candidate.flatMap((note, index) => (
         note.midi === inheritedSequence[index]?.midi ? [] : [index]
@@ -196,9 +216,10 @@ export function createQuestion(options: CreateQuestionOptions): Question {
         Math.abs(diatonicIndex(candidate[position]!) - diatonicIndex(inheritedSequence[position]!))
           < minDiatonicDistance
       ))) return [];
-      return [candidate.map((note, index) => (
+      const distractor = candidate.map((note, index) => (
         changedPositions.includes(index) ? note : sequence[index]!
-      ))];
+      ));
+      return hasDistinctAdjacentMidi(distractor) ? [distractor] : [];
     });
     const fallbackDistractors = weightedSampleWithoutReplacement(
       uniqueUnseenSequences(contourDistractors),

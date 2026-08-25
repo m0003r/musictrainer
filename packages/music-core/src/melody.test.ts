@@ -7,6 +7,7 @@ import {
   createQuestion,
   diatonicIndex,
   difficultyPreset,
+  hasDistinctAdjacentMidi,
   isValidMelodicSequence,
   keySignatureAlter,
   melodicDeltas,
@@ -68,6 +69,101 @@ function expectHardInvariants(
 }
 
 describe("melodic contour grammar", () => {
+  it("detects adjacent enharmonic unisons but permits a later repeated pitch", () => {
+    expect(hasDistinctAdjacentMidi([
+      { midi: 64 },
+      { midi: 64 }
+    ])).toBe(false); // E4 followed by F-flat4.
+    expect(hasDistinctAdjacentMidi([
+      { midi: 60 },
+      { midi: 60 }
+    ])).toBe(false); // B-sharp3 followed by C4.
+    expect(hasDistinctAdjacentMidi([
+      { midi: 60 },
+      { midi: 62 },
+      { midi: 60 }
+    ])).toBe(true);
+  });
+
+  it("avoids written enharmonic collisions in both directions", () => {
+    const cases = [
+      {
+        notes: createNaturalRange(64, 65),
+        keyFifths: 0 as const,
+        rngValues: [0, 0, 0.99, 0],
+        expectedMidis: [64, 66]
+      },
+      {
+        notes: createNaturalRange(59, 60),
+        keyFifths: 0 as const,
+        rngValues: [0, 0, 0, 0],
+        expectedMidis: [58, 60]
+      },
+      {
+        notes: createNaturalRange(65, 67),
+        keyFifths: 1 as const,
+        rngValues: [0, 0, 0.99, 0],
+        expectedMidis: [66, 68]
+      }
+    ];
+
+    for (const testCase of cases) {
+      let rngIndex = 0;
+      const question = createQuestion({
+        direction: { source: "notation", target: "sound" },
+        clef: "treble",
+        nameSystem: "all",
+        notes: testCase.notes,
+        notesPerQuestion: 2,
+        maxMelodicDistance: 1,
+        optionCount: 2,
+        keyFifths: testCase.keyFifths,
+        allowWrittenAccidentals: true,
+        rng: () => testCase.rngValues[rngIndex++] ?? 0
+      });
+
+      expect(question.sequence.map((note) => note.midi)).toEqual(testCase.expectedMidis);
+      expect(hasDistinctAdjacentMidi(question.sequence)).toBe(true);
+      expect(question.optionSequences.every(hasDistinctAdjacentMidi)).toBe(true);
+    }
+  });
+
+  it("keeps targets and every distractor collision-free for one to five notes and all signatures", () => {
+    const notes = notesForClefDifficulty("treble", 3);
+    const keyFifthsValues = [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7] as const;
+    let contextCount = 0;
+
+    for (const notesPerQuestion of [1, 2, 3, 4, 5] as const) {
+      for (const keyFifths of keyFifthsValues) {
+        for (let seed = 1; seed <= 5; seed += 1) {
+          const question = createQuestion({
+            direction: { source: "sound", target: "notation" },
+            clef: "treble",
+            nameSystem: "all",
+            notes,
+            notesPerQuestion,
+            maxMelodicDistance: 4,
+            keyFifths,
+            allowWrittenAccidentals: true,
+            rng: seededRng(notesPerQuestion * 100_000 + (keyFifths + 7) * 100 + seed)
+          });
+
+          expect(hasDistinctAdjacentMidi(
+            question.sequence
+          ), `target: length ${notesPerQuestion}, key ${keyFifths}, seed ${seed}`).toBe(true);
+          for (const [optionIndex, option] of question.optionSequences.entries()) {
+            expect(hasDistinctAdjacentMidi(
+              option
+            ), `option ${optionIndex}: length ${notesPerQuestion}, key ${keyFifths}, seed ${seed}`).toBe(true);
+          }
+          contextCount += 1;
+        }
+      }
+    }
+
+    expect(contextCount).toBe(5 * 15 * 5);
+  });
+
   it("enforces every hard invariant across seeded lengths and distance ceilings", () => {
     const notes = notesForClefDifficulty("treble", 3);
     let questionCount = 0;

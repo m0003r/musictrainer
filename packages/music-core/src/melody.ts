@@ -13,6 +13,7 @@ export interface CreateMelodyOptions {
   maxMelodicDistance: number;
   previousMidi?: number;
   allowedFirstNotes?: readonly Note[];
+  requireDistinctAdjacentMidi?: boolean;
   rng: () => number;
 }
 
@@ -21,6 +22,7 @@ export interface EnumerateMelodiesOptions {
   noteCount: number;
   maxMelodicDistance: number;
   allowedFirstNotes?: readonly Note[];
+  requireDistinctAdjacentMidi?: boolean;
 }
 
 const contourCache = new Map<string, readonly WeightedContour[]>();
@@ -35,6 +37,10 @@ export function melodicDeltas(notes: readonly Pick<Note, "step" | "octave">[]): 
     deltas.push(diatonicIndex(notes[index]!) - diatonicIndex(notes[index - 1]!));
   }
   return deltas;
+}
+
+export function hasDistinctAdjacentMidi(notes: readonly Pick<Note, "midi">[]): boolean {
+  return notes.every((note, index) => index === 0 || note.midi !== notes[index - 1]!.midi);
 }
 
 export function isValidMelodicContour(
@@ -218,8 +224,12 @@ function compatibleContours(options: EnumerateMelodiesOptions): Array<{
   return contoursFor(options.noteCount, options.maxMelodicDistance).flatMap((contour) => {
     const starts = options.notes.filter((note) => {
       const startIndex = diatonicIndex(note);
-      return (allowedFirstIndexes === null || allowedFirstIndexes.has(startIndex))
-        && contour.positions.every((position) => noteByIndex.has(startIndex + position));
+      if ((allowedFirstIndexes !== null && !allowedFirstIndexes.has(startIndex))
+        || !contour.positions.every((position) => noteByIndex.has(startIndex + position))) {
+        return false;
+      }
+      const sequence = contour.positions.map((position) => noteByIndex.get(startIndex + position)!);
+      return !options.requireDistinctAdjacentMidi || hasDistinctAdjacentMidi(sequence);
     });
     return starts.length > 0 ? [{ contour, starts }] : [];
   });
